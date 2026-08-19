@@ -15,6 +15,7 @@
   },
   "error": {
     "browse_failed": "Failed to browse device",
+    "cast_failed": "Cast failed",
     "cli_failed": "Command failed",
     "conn_failed": "Wireless connection failed",
     "pair_failed": "Pairing failed",
@@ -48,6 +49,7 @@
     "adb_hint": "ADB device — cast from the action panel.",
     "bit_rate": "Bitrate",
     "cancel": "Cancel",
+    "cast_offline_hint": "Device is not reachable by adb. Check the USB cable / wireless debugging, then retry.",
     "close": "Close",
     "confirm": "OK",
     "devices_connected": "{connected} connected",

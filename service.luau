@@ -129,18 +129,26 @@ end
 
 -- 用局域网 IP 判断 adb 与 KDE Connect 是否同一台设备：
 -- 给 KDE 设备记录填充 adbId（匹配到的 adb 序列号），使 KDE 设备卡也能发起投屏。
+-- 无 IP 可匹配时，若恰好只有一个 adb 设备（单设备兜底），也关联到它，
+-- 避免 USB 直连场景下 KDE 设备卡缺少投屏入口。
 local function matchKdeToAdb()
 	local ipToAdb = {}
+	local adbIds = {}
 	for _, id in ipairs(deviceOrder) do
 		local d = devices[id]
-		if d and d.source == "adb" and d.ip then
-			ipToAdb[d.ip] = d.adbId
+		if d and d.source == "adb" then
+			if d.ip then ipToAdb[d.ip] = d.adbId end
+			adbIds[#adbIds + 1] = d.adbId
 		end
 	end
+	local singleAdb = (#adbIds == 1) and adbIds[1] or nil
 	for _, id in ipairs(deviceOrder) do
 		local d = devices[id]
 		if d and d.source ~= "adb" then
 			local match = d.ipv4 and ipToAdb[d.ipv4] or nil
+			if not match and singleAdb and d.isReachable == true then
+				match = singleAdb
+			end
 			if d.adbId ~= match then
 				d.adbId = match
 				devices[id] = d
@@ -605,6 +613,10 @@ end
 
 local function refreshAdbDevices()
 	adb.listDevicesAsync(function(adbList)
+		if adbList == nil then
+			-- adb 命令失败：保留上次的设备列表，避免设备从面板消失
+			return
+		end
 		for id in pairs(devices) do
 			if id:sub(1, 4) == "adb:" then devices[id] = nil end
 		end
@@ -811,7 +823,10 @@ local function handleCommand(cmd)
 			local adbId = cmd.device
 			local params = cmd.params or persistence.loadParams(adbId)
 			persistence.saveParams(adbId, params)
-			scrcpy.start({ id = adbId }, params)
+			noctalia.log("[phone-operate] cast: " .. tostring(adbId)
+				.. " online=" .. tostring(devices["adb:" .. adbId] and devices["adb:" .. adbId].isReachable))
+			local ok = scrcpy.start({ id = adbId }, params)
+			noctalia.log("[phone-operate] scrcpy.start returned: " .. tostring(ok))
 			scrcpyRunning[adbId] = true
 			publishRunning()
 			if params.record then cleanupRecordings() end

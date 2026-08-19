@@ -9,24 +9,27 @@ local shell = require("./shell.luau")
 --   192.168.1.3:5555       device product:piano
 function M.listDevicesAsync(cb)
 	noctalia.runAsync("adb devices -l", function(result)
+		if result.exitCode ~= 0 then
+			-- 命令失败（adb server 异常等）：返回 nil，调用方保留上次设备列表
+			cb(nil)
+			return
+		end
 		local out = {}
-		if result.exitCode == 0 then
-			for line in result.stdout:gmatch("[^\n]+") do
-				-- 跳过 "List of devices attached" 标题与空行
-				if not line:match("^List of devices") and not line:match("^%s*$") then
-					local serial, devState = line:match("^(%S+)%s+(%S+)")
-					if serial and devState == "device" then
-						local transport = line:match("usb:") and "usb" or "wifi"
-						local model = line:match("model:(%S+)") or serial
-						-- customName / label 由 service 层从 persistence 加载后合并
-						table.insert(out, {
-							id = serial,
-							state = devState,
-							transport = transport,
-							model = model,
-							online = true,
-						})
-					end
+		for line in result.stdout:gmatch("[^\n]+") do
+			-- 跳过 "List of devices attached" 标题与空行
+			if not line:match("^List of devices") and not line:match("^%s*$") then
+				local serial, devState = line:match("^(%S+)%s+(%S+)")
+				if serial and devState == "device" then
+					local transport = line:match("usb:") and "usb" or "wifi"
+					local model = line:match("model:(%S+)") or serial
+					-- customName / label 由 service 层从 persistence 加载后合并
+					table.insert(out, {
+						id = serial,
+						state = devState,
+						transport = transport,
+						model = model,
+						online = true,
+					})
 				end
 			end
 		end

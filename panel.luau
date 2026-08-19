@@ -562,7 +562,10 @@ local function paramsPanel(target)
 			end
 			sendCmd({ op = "pair_and_cast", address = target.ip, port = castPort,
 				code = castCode, params = params })
+			return
 		end
+		-- 离线且无 IP（如 USB 设备未被 adb 识别）：明确提示，而不是静默失败
+		noctalia.notifyError(t("error.cast_failed"), t("panel.cast_offline_hint"))
 	end
 
 	local children = {}

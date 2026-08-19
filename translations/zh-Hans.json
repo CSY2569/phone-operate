@@ -15,6 +15,7 @@
   },
   "error": {
     "browse_failed": "浏览设备失败",
+    "cast_failed": "投屏失败",
     "cli_failed": "命令失败",
     "conn_failed": "无线连接失败",
     "pair_failed": "配对失败",
@@ -48,6 +49,7 @@
     "adb_hint": "ADB 设备——通过操作面板投屏。",
     "bit_rate": "码率",
     "cancel": "取消",
+    "cast_offline_hint": "设备未被 adb 识别。请检查 USB 连接或无线调试，然后重试。",
     "close": "关闭",
     "confirm": "确定",
     "devices_connected": "已连接 {connected}",
