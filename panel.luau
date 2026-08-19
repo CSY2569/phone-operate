@@ -306,8 +306,9 @@ local function paramsPanel()
 					setter(tonumber(v))
 					render()
 				end,
-				onDragEnd = function(v)
-					if v ~= nil then setter(tonumber(v)) end
+				onDragEnd = function(_v)
+					-- onChange 已实时维护 params；onDragEnd 不再回写值（其回调值可能是拖动起始值，
+					-- 会覆盖用户拖动后的新值），只做提交：存参+存自定义档+（投屏中则）重启
 					persistence.saveParams(selectedDevice, params)
 					persistence.saveCustom(selectedDevice, params)
 					ipcRestartWithParams()
