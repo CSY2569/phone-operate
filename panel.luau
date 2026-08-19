@@ -294,11 +294,13 @@ local function paramsPanel()
 		}),
 	}))
 
-	-- 滑块组：onChange 只做实时预览，onDragEnd 才存参+重启（拖动中不连环重启 scrcpy）
+	-- 滑块组：onChange 实时预览（带稳定 key，重渲染不重建原生滑块，避免拖动脱节），
+	-- onDragEnd 才存参+存自定义档+重启（拖动中不连环重启 scrcpy）
 	local function paramSlider(labelKey, val, min, max, step, suffix, setter)
-		table.insert(rows, ui.row({ gap = 8, align = "center" }, {
+		table.insert(rows, ui.row({ key = "row-" .. labelKey, gap = 8, align = "center" }, {
 			ui.label({ text = noctalia.tr(labelKey), width = 72, color = "surface_variant" }),
 			ui.slider({
+				key = "slider-" .. labelKey,
 				min = min, max = max, step = step, value = val,
 				onChange = function(v)
 					setter(tonumber(v))
@@ -318,11 +320,11 @@ local function paramsPanel()
 	end
 
 	paramSlider("panel.max_size", params.max_size or 1920,
-		256, 4096, 64, "", function(v) params.max_size = v end)
+		256, 3840, 64, "", function(v) params.max_size = v end)
 	paramSlider("panel.bit_rate", params.bit_rate or 8,
-		1, 100, 1, "M", function(v) params.bit_rate = v end)
+		1, 30, 1, "M", function(v) params.bit_rate = v end)
 	paramSlider("panel.max_fps", params.max_fps or 60,
-		1, 120, 1, "", function(v) params.max_fps = v end)
+		1, 240, 1, "", function(v) params.max_fps = v end)
 
 	-- 开关组（名称 + 小字说明 + toggle）
 	local function toggleBlock(labelKey, descKey, checked, setter)
