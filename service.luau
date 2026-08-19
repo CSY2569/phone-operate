@@ -129,24 +129,32 @@ end
 
 -- 用局域网 IP 判断 adb 与 KDE Connect 是否同一台设备：
 -- 给 KDE 设备记录填充 adbId（匹配到的 adb 序列号），使 KDE 设备卡也能发起投屏。
--- 无 IP 可匹配时，若恰好只有一个 adb 设备（单设备兜底），也关联到它，
--- 避免 USB 直连场景下 KDE 设备卡缺少投屏入口。
+-- 单设备兜底仅当「adb 唯一 且 KDE 设备也唯一」时启用：USB 直连单台手机时，
+-- adb 设备无 IP、KDE 设备 IP 匹配不上，兜底关联避免缺少投屏入口。
+-- 多 KDE 设备时禁用兜底——否则所有 KDE 设备都会被关联到同一台 adb 设备，
+-- 第二台设备点投屏会误投第一台（设备串台）。
 local function matchKdeToAdb()
 	local ipToAdb = {}
 	local adbIds = {}
+	local kdeIds = {}
 	for _, id in ipairs(deviceOrder) do
 		local d = devices[id]
-		if d and d.source == "adb" then
-			if d.ip then ipToAdb[d.ip] = d.adbId end
-			adbIds[#adbIds + 1] = d.adbId
+		if d then
+			if d.source == "adb" then
+				if d.ip then ipToAdb[d.ip] = d.adbId end
+				adbIds[#adbIds + 1] = d.adbId
+			else
+				kdeIds[#kdeIds + 1] = id
+			end
 		end
 	end
 	local singleAdb = (#adbIds == 1) and adbIds[1] or nil
+	local singleKde = (#kdeIds == 1) and kdeIds[1] or nil
 	for _, id in ipairs(deviceOrder) do
 		local d = devices[id]
 		if d and d.source ~= "adb" then
 			local match = d.ipv4 and ipToAdb[d.ipv4] or nil
-			if not match and singleAdb and d.isReachable == true then
+			if not match and singleAdb and singleKde == id and d.isReachable == true then
 				match = singleAdb
 			end
 			if d.adbId ~= match then
