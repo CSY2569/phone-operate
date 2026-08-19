@@ -1,12 +1,8 @@
 -- launcher.luau
 -- launcher_provider：ph 前缀搜 adb 设备，选中即投屏（走 pc.cmd 通道）。
-local cmdSeq = 0
+local common = require("./lib/common.luau")
 
-local function sendCmd(cmd)
-	cmdSeq = cmdSeq + 1
-	cmd.seq = os.time() * 1000000 + cmdSeq
-	noctalia.state.set("pc.cmd", cmd)
-end
+local sendCmd = common.sendCmd
 
 function onQuery(text)
 	local devices = noctalia.state.get("pc.devices") or {}

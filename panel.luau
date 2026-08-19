@@ -4,19 +4,10 @@
 --   「投屏参数」展开时覆盖左栏。参数读 lib/persistence，写经 pc.cmd 通道。
 
 local persistence = require("./lib/persistence.luau")
+local common = require("./lib/common.luau")
 
-local function t(key)
-	local table = noctalia.state.get("pc.trTable") or {}
-	return table[key] or key
-end
-
--- ── 命令通道 ─────────────────────────────────────────────────────────────────
-local cmdSeq = 0
-local function sendCmd(cmd)
-	cmdSeq = cmdSeq + 1
-	cmd.seq = os.time() * 1000000 + cmdSeq
-	noctalia.state.set("pc.cmd", cmd)
-end
+local t = common.t
+local sendCmd = common.sendCmd
 
 -- ── 每设备 UI 状态 ───────────────────────────────────────────────────────────
 local smsDrafts = {}
@@ -82,10 +73,6 @@ end
 
 -- 投屏目标解析：adb 设备用它自身；KDE 设备用 IP 匹配到的 adb 序列号
 -- （service 已按局域网 IP 匹配填充 d.adbId），无匹配时回退到 "IP:5555"。
-local function ipFromSerial(serial)
-	return serial:match("^(%d+%.%d+%.%d+%.%d+):%d+$")
-end
-
 local function castTarget(d)
 	if not d then return nil end
 	local allDevices = noctalia.state.get("pc.devices") or {}
@@ -97,7 +84,7 @@ local function castTarget(d)
 	end
 	if not adbId then return nil end
 	local adbDev = allDevices["adb:" .. adbId]
-	local ip = adbDev and adbDev.ip or (d.source ~= "adb" and d.ipv4) or ipFromSerial(adbId)
+	local ip = adbDev and adbDev.ip or (d.source ~= "adb" and d.ipv4) or common.ipFromSerial(adbId)
 	return {
 		adbId = adbId,
 		ip = ip,
@@ -106,38 +93,8 @@ local function castTarget(d)
 	}
 end
 
--- adb 设备是否已被某个 KDE 设备覆盖（IP 匹配关联了同一 adbId）。
--- 被覆盖的 adb 设备不再显示独立卡，统一由 KDE 设备卡管理（投屏/停止）。
-local function adbCoveredByKde(d, devices)
-	if not d or d.source ~= "adb" then return false end
-	for _, other in pairs(devices) do
-		if other.source ~= "adb" and other.adbId and other.adbId == d.adbId then
-			return true
-		end
-	end
-	return false
-end
-
 -- ── 工具 ─────────────────────────────────────────────────────────────────────
-local function glyphForType(tp)
-	if tp == "tablet" then return "device-tablet" end
-	if tp == "laptop" then return "device-laptop" end
-	if tp == "desktop" or tp == "computer" then return "device-desktop" end
-	if tp == "tv" then return "device-tv" end
-	return "device-mobile"
-end
-
-local function batteryGlyph(charge, charging)
-	if charging then return "battery-charging" end
-	if type(charge) ~= "number" then return "battery" end
-	if charge >= 90 then return "battery" end
-	if charge >= 60 then return "battery-3" end
-	if charge >= 30 then return "battery-2" end
-	if charge > 0 then return "battery-1" end
-	return "battery-off"
-end
-
-local function fmtTime(ms)
+local fmtTime = function(ms)
 	if type(ms) ~= "number" or ms <= 0 then return "0:00" end
 	local s = math.floor(ms / 1000)
 	local m = math.floor(s / 60)
@@ -171,7 +128,7 @@ local function headerRow(order, devices, sel)
 					text = tostring(idx),
 					glyph = d.source == "adb"
 						and (d.transport == "wifi" and "wifi" or "usb")
-						or glyphForType(d.type),
+						or common.deviceGlyph(d),
 					variant = isSel and "primary" or "outline",
 					controlSize = "sm",
 					selected = isSel,
@@ -238,7 +195,7 @@ local function deviceCard(d)
 	local reachable = d.isPaired == true and d.isReachable == true
 	local aliasMap = noctalia.state.get("pc.aliasMap") or {}
 	local name = aliasMap[d.id] or d.name or "Your-Phone"
-	local glyph = glyphForType(d.type)
+	local glyph = common.deviceGlyph(d)
 	local imgMap = noctalia.state.get("pc.imageMap") or {}
 	local imgPath = imgMap[d.id]
 	if imgPath and imgPath ~= "" and not noctalia.fileExists(imgPath) then
@@ -364,7 +321,7 @@ local function deviceCard(d)
 			ui.label({ text = netText, fontSize = 9, color = "on_surface_variant" }),
 		}),
 		ui.column({ gap = 2, align = "center", width = 52 }, {
-			ui.glyph({ name = batteryGlyph(charge, charging), size = 16, color = chargeColor }),
+			ui.glyph({ name = common.batteryGlyph(charge, charging), size = 16, color = chargeColor }),
 			ui.label({ text = chargeText, fontSize = 10, fontWeight = "medium", color = chargeColor }),
 		}),
 	})
@@ -788,31 +745,23 @@ end
 
 -- ── 页脚：设备地址 ────────────────────────────────────────────────────────────
 local function infoFooter(d)
+	local function cell(label, val)
+		return ui.column({ gap = 2, padding = 6, radius = 6, fill = "surface/0.5",
+			flexGrow = 1 }, {
+			ui.label({ text = label, fontSize = 9, color = "on_surface_variant" }),
+			ui.label({ text = val or "--", fontSize = 10, maxLines = 1,
+				color = val and "on_surface" or "on_surface_variant" }),
+		})
+	end
 	if d.source == "adb" then
-		local function cell(label, val)
-			return ui.column({ gap = 2, padding = 6, radius = 6, fill = "surface/0.5",
-				flexGrow = 1 }, {
-				ui.label({ text = label, fontSize = 9, color = "on_surface_variant" }),
-				ui.label({ text = val or "--", fontSize = 10, maxLines = 1,
-					color = val and "on_surface" or "on_surface_variant" }),
-			})
-		end
 		return ui.row({ gap = 8 }, {
 			cell("ADB ID", d.adbId),
 			cell("USB/WiFi", d.transport or "usb"),
 		})
 	end
-	local function ipCell(label, ip)
-		return ui.column({ gap = 2, padding = 6, radius = 6, fill = "surface/0.5",
-			flexGrow = 1 }, {
-			ui.label({ text = label, fontSize = 9, color = "on_surface_variant" }),
-			ui.label({ text = ip or "--", fontSize = 10, maxLines = 1,
-				color = ip and "on_surface" or "on_surface_variant" }),
-		})
-	end
 	return ui.row({ gap = 8 }, {
-		ipCell("IPv4", d.ipv4),
-		ipCell("IPv6", d.ipv6),
+		cell("IPv4", d.ipv4),
+		cell("IPv6", d.ipv6),
 	})
 end
 
@@ -861,12 +810,12 @@ function render()
 	local visibleOrder = {}
 	for _, id in ipairs(order) do
 		local d = devices[id]
-		if d and not adbCoveredByKde(d, devices) then
+		if d and not common.adbCoveredByKde(d, devices) then
 			table.insert(visibleOrder, id)
 		end
 	end
 	local sel = noctalia.state.get("pc.selected")
-	if not sel or not devices[sel] or adbCoveredByKde(devices[sel], devices) then
+	if not sel or not devices[sel] or common.adbCoveredByKde(devices[sel], devices) then
 		sel = visibleOrder[1]
 	end
 

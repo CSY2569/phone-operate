@@ -8,13 +8,11 @@
 local adb = require("./lib/adb.luau")
 local scrcpy = require("./lib/scrcpy.luau")
 local persistence = require("./lib/persistence.luau")
+local shell = require("./lib/shell.luau")
+local common = require("./lib/common.luau")
 
--- Local translation: reads from pc.trTable (published by service) so users
--- can switch language at runtime, unlike noctalia.tr() which follows system locale.
-local function t(key)
-	local table = noctalia.state.get("pc.trTable") or {}
-	return table[key] or key
-end
+local t = common.t
+local shellQuote = shell.quote
 
 -- ── State contract (read by UI entries) ──────────────────────────────────────
 --   noctalia.state "pc.backend"   : { available=bool, name="KDE Connect"|"None" }
@@ -31,10 +29,6 @@ end
 --   device    : /modules/kdeconnect/devices/<id>  iface org.kde.kdeconnect.device
 --   battery   : <dev>/battery  props: charge(i),isCharging(b)
 --   mpris     : <dev>/mprisremote iface org.kde.kdeconnect.device.mprisremote
-
-local function shellQuote(s)
-	return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
-end
 
 local SVC = "org.kde.kdeconnect"
 local DAEMON_PATH = "/modules/kdeconnect"
@@ -121,6 +115,7 @@ end
 local devices = {}
 local deviceOrder = {}
 local intervalMs -- forward-declared
+local combinedIntervalMs -- forward-declared
 
 -- wifi 序列号形如 "192.168.1.3:5555"，host 即设备 IP；usb 序列号无 IP
 local function adbIpOf(serial)
@@ -208,21 +203,10 @@ local function saveData(data)
 	if ok and encoded then noctalia.writeFile(p, encoded) end
 end
 
-local function persistSelected(dev)
+-- 持久化单个字段：{ key = value } 合并进 state.json 后写盘
+local function persistField(key, value)
 	local data = loadData()
-	data.selected = dev
-	saveData(data)
-end
-
-local function persistImageMap(map)
-	local data = loadData()
-	data.imageMap = map
-	saveData(data)
-end
-
-local function persistAliasMap(map)
-	local data = loadData()
-	data.aliasMap = map
+	data[key] = value
 	saveData(data)
 end
 
@@ -287,8 +271,6 @@ local function detectBackend()
 				noctalia.state.set("pc.backend", {
 					available = owned,
 					name = owned and "KDE Connect" or "None",
-					announcedName = "",
-					selfId = "",
 					hasGdbus = hasGdbus,
 					hasCli = hasCli,
 				})
@@ -298,8 +280,6 @@ local function detectBackend()
 		noctalia.state.set("pc.backend", {
 			available = available,
 			name = available and "KDE Connect" or "None",
-			announcedName = "",
-			selfId = "",
 			hasGdbus = false,
 			hasCli = hasCli,
 		})
@@ -311,16 +291,13 @@ local function fetchDeviceProps(id, cb)
 	local devPath = DAEMON_PATH .. "/devices/" .. id
 	noctalia.runAsync(gdbusGetAll(devPath, DEV_IFACE), function(res)
 		local d = devices[id] or { id = id }
-		if res and res.exitCode == 0 then
-			local p = parseGdbusVariantDict(res.stdout or "")
-			d.name = p.name
-			d.type = p.type
-			d.isReachable = p.isReachable
-			d.isPaired = p.isPaired
-			d.pairState = p.pairState
-			d.verificationKey = p.verificationKey
-			d.supportedPlugins = p.supportedPlugins
-			local v4, v6
+			if res and res.exitCode == 0 then
+				local p = parseGdbusVariantDict(res.stdout or "")
+				d.name = p.name
+				d.type = p.type
+				d.isReachable = p.isReachable
+				d.isPaired = p.isPaired
+				local v4, v6
 			if type(p.reachableAddresses) == "table" then
 				for _, a in ipairs(p.reachableAddresses) do
 					if type(a) == "string" then
@@ -558,7 +535,7 @@ local function pollPendingPick()
 				local map = noctalia.state.get("pc.imageMap") or {}
 				map[pendingPick.device] = p
 				noctalia.state.set("pc.imageMap", map)
-				persistImageMap(map)
+				persistField("imageMap", map)
 				noctalia.log("[phone-operate] picked image for " .. pendingPick.device .. ": " .. p)
 			end
 		end
@@ -702,6 +679,11 @@ local function pruneRunning()
 end
 
 -- ── 命令执行（pc.cmd 通道） ───────────────────────────────────────────────────
+-- 大部分 op 由 UI（panel/widget/launcher）经 pc.cmd 发送。以下 op 当前无 UI
+-- 发送方，保留作为外部 IPC（noctalia msg ...）的功能接口：
+--   share_text / share_file（分享文本/文件）、accept / reject（接受/拒绝配对）、
+--   launch_sms_app（打开短信 App）、stop_all_cast（停止全部投屏）、
+--   adb_connect（无线连接）、usb_mode（切回 USB）。
 local function handleCommand(cmd)
 	if type(cmd) ~= "table" then return end
 	local op = cmd.op
@@ -714,7 +696,7 @@ local function handleCommand(cmd)
 		refreshAdbDevices()
 	elseif op == "select" then
 		noctalia.state.set("pc.selected", dev)
-		persistSelected(dev)
+		persistField("selected", dev)
 	elseif op == "ring" then
 		runCli("--ring -d " .. shellQuote(dev))
 	elseif op == "ping" then
@@ -735,7 +717,7 @@ local function handleCommand(cmd)
 		local alias = cmd.alias or ""
 		if alias == "" then map[dev] = nil else map[dev] = alias end
 		noctalia.state.set("pc.aliasMap", map)
-		persistAliasMap(map)
+		persistField("aliasMap", map)
 	elseif op == "pick_image" or op == "pick_share" then
 		if pendingPick then
 			noctalia.notifyError(t("error.pick_in_progress"))

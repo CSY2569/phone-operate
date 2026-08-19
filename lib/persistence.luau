@@ -35,18 +35,6 @@ function M.addHistory(address, label, transport)
 	saveAll(data)
 end
 
-function M.removeHistory(address)
-	local data = loadAll()
-	data.devices = data.devices or {}
-	for i, d in ipairs(data.devices) do
-		if d.id == address then
-			table.remove(data.devices, i)
-			break
-		end
-	end
-	saveAll(data)
-end
-
 -- 每设备参数：{ ["192.168.1.3:5555"] = { max_size=1920, bit_rate=8, ... }, ... }
 -- 未覆盖时 fallback 到插件级 settings 默认值
 function M.loadParams(device_id)
@@ -94,17 +82,6 @@ end
 function M.loadName(device_id)
 	local data = loadAll()
 	return data.names and data.names[device_id] or nil
-end
-
-function M.saveName(device_id, name)
-	local data = loadAll()
-	data.names = data.names or {}
-	if name and name ~= "" then
-		data.names[device_id] = name
-	else
-		data.names[device_id] = nil -- 清空则删 key
-	end
-	saveAll(data)
 end
 
 return M
