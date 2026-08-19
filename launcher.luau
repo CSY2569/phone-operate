@@ -1,36 +1,45 @@
 -- launcher.luau
--- launcher_provider：启动器里输 scrcpy 搜设备，选中即启动。
-local state = require("./lib/state.luau")
-local ipc = require("./lib/ipc.luau")
+-- launcher_provider：ph 前缀搜 adb 设备，选中即投屏（走 pc.cmd 通道）。
+local cmdSeq = 0
+
+local function sendCmd(cmd)
+	cmdSeq = cmdSeq + 1
+	cmd.seq = os.time() * 1000000 + cmdSeq
+	noctalia.state.set("pc.cmd", cmd)
+end
 
 function onQuery(text)
-	local devs = noctalia.state.get(state.KEY_DEVICES) or {}
+	local devices = noctalia.state.get("pc.devices") or {}
+	local order = noctalia.state.get("pc.order") or {}
 	local results = {}
 	local lower = string.lower(text or "")
-	for _, dev in ipairs(devs) do
-		-- 只列 adb 设备（launcher 语义是选中即投屏，KDE 设备不能投屏）
-		if dev.source == "adb" and (text == "" or string.find(string.lower(dev.label), lower, 1, true)) then
-			local status = dev.online and noctalia.tr("panel.status_online") or noctalia.tr("panel.status_offline")
+	for _, id in ipairs(order) do
+		local dev = devices[id]
+		-- 只列 adb 设备（launcher 语义 = 选中即投屏）
+		if dev and dev.source == "adb"
+			and (text == "" or string.find(string.lower(dev.name or id), lower, 1, true)) then
+			local online = dev.isReachable == true
 			table.insert(results, {
-				id = dev.id,
-				title = dev.label,
-				subtitle = dev.transport .. " · " .. status,
+				id = id,
+				title = dev.name or id,
+				subtitle = (dev.transport or "usb") .. (online and " · online" or " · offline"),
 				glyph = dev.transport == "wifi" and "wifi" or "usb",
 			})
 		end
 	end
 	if #results == 0 then
 		launcher.setResults(text, {
-			{ id = "none", title = noctalia.tr("panel.no_device"), glyph = "alert-triangle" },
+			{ id = "none", title = "No device", glyph = "alert-triangle" },
 		})
 	else
-		-- 必须回传 text 作为 query，晚到结果才能映射回查询
 		launcher.setResults(text, results)
 	end
 end
 
 function onActivate(id)
 	if id == "none" then return end
-	-- 选中即启动该设备的 scrcpy
-	ipc.send("start", { device_id = id })
+	-- 选中即投屏：从 id（"adb:<serial>"）取序列号
+	local adbId = id:sub(5)
+	sendCmd({ op = "select", device = id })
+	sendCmd({ op = "cast", device = adbId })
 end
