@@ -16,6 +16,7 @@ local pairAddr = ""
 local pairCode = ""
 local pairExpanded = false
 local running = {}
+local activePreset = nil   -- 当前选中的档位：hd / perf / save / custom（nil=未选）
 
 -- ─── 参数预设（高清/性能/省电）───
 local PRESETS = {
@@ -246,8 +247,9 @@ local function paramsPanel()
 		}),
 	}))
 
-	-- 预设快捷
-	local function applyPreset(p)
+	-- 预设快捷：key 为 hd/perf/save，选中后高亮该档位
+	local function applyPreset(key, p)
+		activePreset = key
 		for k, v in pairs(p) do params[k] = v end
 		persistence.saveParams(selectedDevice, params)
 		ipcRestartWithParams()
@@ -256,25 +258,32 @@ local function paramsPanel()
 	table.insert(rows, ui.row({ gap = 8 }, {
 		ui.button({
 			text = noctalia.tr("panel.preset_hd"), variant = "ghost", controlSize = "sm",
-			onClick = function() applyPreset(PRESETS.hd) end, flexGrow = 1,
+			selected = activePreset == "hd",
+			onClick = function() applyPreset("hd", PRESETS.hd) end, flexGrow = 1,
 		}),
 		ui.button({
 			text = noctalia.tr("panel.preset_perf"), variant = "ghost", controlSize = "sm",
-			onClick = function() applyPreset(PRESETS.perf) end, flexGrow = 1,
+			selected = activePreset == "perf",
+			onClick = function() applyPreset("perf", PRESETS.perf) end, flexGrow = 1,
 		}),
 		ui.button({
 			text = noctalia.tr("panel.preset_save"), variant = "ghost", controlSize = "sm",
-			onClick = function() applyPreset(PRESETS.save) end, flexGrow = 1,
+			selected = activePreset == "save",
+			onClick = function() applyPreset("save", PRESETS.save) end, flexGrow = 1,
 		}),
 		-- 自定义：恢复用户手动调整过的参数档（预设不覆盖它）
 		ui.button({
 			text = noctalia.tr("panel.preset_custom"), variant = "ghost", controlSize = "sm",
+			selected = activePreset == "custom",
 			onClick = function()
+				activePreset = "custom"
 				local c = persistence.loadCustom(selectedDevice)
 				if c then
 					for k, v in pairs(c) do params[k] = v end
 					persistence.saveParams(selectedDevice, params)
 					ipcRestartWithParams()
+					render()
+				else
 					render()
 				end
 			end, flexGrow = 1,
@@ -291,6 +300,7 @@ local function paramsPanel()
 				min = min, max = max, step = step, value = val,
 				onChange = function(v)
 					setter(tonumber(v))
+					activePreset = "custom" -- 手动调整即偏离预设，切回自定义档位高亮
 					render()
 				end,
 				onDragEnd = function(_v)
@@ -323,6 +333,7 @@ local function paramsPanel()
 					checked = checked,
 					onChange = function(v)
 						setter(v == "true")
+						activePreset = "custom" -- 手动调整即偏离预设，切回自定义档位高亮
 						persistence.saveParams(selectedDevice, params)
 						persistence.saveCustom(selectedDevice, params)
 						ipcRestartWithParams()
