@@ -356,11 +356,14 @@ local function deviceCard(d)
 end
 
 -- ── 右栏操作按钮 ─────────────────────────────────────────────────────────────
+-- 右栏固定宽 + 按钮内容宽（右栏宽 - scroll padding 16）。按钮固定宽度让
+-- label 在 maxWidth 内省略号，不溢出；改右栏宽时同步改这里。
+local RIGHT_COL_WIDTH = 110
+local RIGHT_BTN_WIDTH = RIGHT_COL_WIDTH - 16
+
 local function vActionBtn(text, glyph, onClick, variant, tooltip)
-	-- width 固定为右栏内容宽（110 - scroll padding 8*2 = 94），
-	-- 避免按钮按文本自然宽溢出侧边栏；label 超宽时自动省略号。
 	return ui.button({ text = text, glyph = glyph, variant = variant or "outline",
-		controlSize = "sm", width = 94, tooltip = tooltip, onClick = onClick })
+		controlSize = "sm", width = RIGHT_BTN_WIDTH, tooltip = tooltip, onClick = onClick })
 end
 
 local function rightColumn(d)
@@ -386,7 +389,7 @@ local function rightColumn(d)
 			end, paramsExpanded and "primary" or "outline"))
 		table.insert(btns, vActionBtn(t("action.disconnect"), "plug-off",
 			function() sendCmd({ op = "adb_disconnect", device = d.adbId }) end, "ghost"))
-		return ui.column({ key = "right-col", width = 110 }, {
+		return ui.column({ key = "right-col", width = RIGHT_COL_WIDTH }, {
 			ui.scroll({ key = "right-scroll", flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
 		})
 	end
@@ -433,7 +436,7 @@ local function rightColumn(d)
 		table.insert(btns, vActionBtn(t("action.unpair"), "link-off",
 			function() sendCmd({ op = "unpair", device = d.id }) end, "ghost"))
 	end
-	return ui.column({ key = "right-col", width = 110 }, {
+	return ui.column({ key = "right-col", width = RIGHT_COL_WIDTH }, {
 		ui.scroll({ key = "right-scroll", flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
 	})
 end
@@ -639,7 +642,10 @@ local function paramsPanel(target)
 
 	local function paramSlider(labelKey, val, min, max, step, suffix, setter)
 		table.insert(children, ui.row({ key = "row-" .. labelKey, gap = 8, align = "center" }, {
-			ui.label({ text = t(labelKey), width = 72, fontSize = 11, color = "on_surface_variant" }),
+			-- 参数名 minWidth：中文/英文都能完整显示，不截断；slider 是
+			-- 唯一 flexGrow，吃掉剩余宽度（label 不用 flexGrow，避免平分）。
+			ui.label({ text = t(labelKey), minWidth = 72,
+				fontSize = 11, color = "on_surface_variant" }),
 			ui.slider({
 				key = "slider-" .. labelKey,
 				min = min, max = max, step = step, value = val,
@@ -656,7 +662,8 @@ local function paramsPanel(target)
 				end,
 				flexGrow = 1,
 			}),
-			ui.label({ text = tostring(val) .. suffix, width = 48, fontSize = 11, color = "on_surface" }),
+			ui.label({ text = tostring(val) .. suffix, width = 52, fontSize = 11,
+				textAlign = "end", color = "on_surface" }),
 		}))
 	end
 
