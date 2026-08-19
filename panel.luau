@@ -162,7 +162,7 @@ local function deviceCard(dev, rows)
 	table.insert(rows, ui.row({
 		key = "dev-" .. dev.id,
 		fill = isSel and "primary/0.08" or "surface",
-		radius = 12, padding = 0, gap = 0, align = "stretch",
+		radius = 12, padding = 10, gap = 8, align = "center",
 		border = isSel and "primary" or "surface_variant/0.5",
 		borderWidth = 1,
 		onClick = function()
@@ -171,22 +171,19 @@ local function deviceCard(dev, rows)
 			render()
 		end,
 	}, {
-		ui.box({ width = 3, radius = 2, fill = "primary", visible = isSel }),
-		ui.row({ padding = 10, gap = 8, align = "center", flexGrow = 1 }, {
-			ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
-			ui.column({ gap = 3, flexGrow = 1 }, {
-				ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface" }),
-				ui.label({
-					text = dev.transport .. " · " .. dev.id,
-					fontSize = 11, color = "surface_variant",
-				}),
+		ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
+		ui.column({ gap = 3, flexGrow = 1 }, {
+			ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface" }),
+			ui.label({
+				text = dev.transport .. " · " .. dev.id,
+				fontSize = 11, color = "surface_variant",
 			}),
-			ui.row({ fill = pillFill, radius = 8, paddingH = 8, paddingV = 3 }, {
-				ui.label({ text = statusText, fontSize = 11, color = pillColor }),
-			}),
-			actionBtn,
-			editBtn,
 		}),
+		ui.row({ fill = pillFill, radius = 8, paddingH = 8, paddingV = 3 }, {
+			ui.label({ text = statusText, fontSize = 11, color = pillColor }),
+		}),
+		actionBtn,
+		editBtn,
 	}))
 end
 
