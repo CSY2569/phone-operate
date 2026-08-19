@@ -1,0 +1,99 @@
+id = "icefish/phone-operate"
+name = "Phone Operate"
+version = "0.1.0"
+plugin_api = 24
+author = "icefish"
+license = "MIT"
+description = "Control your Android phone via scrcpy — launch, configure, multi-device."
+tags = ["scrcpy", "android", "phone", "control"]
+dependencies = ["scrcpy", "android-tools"]
+
+# ───────────────── 插件级设置（service + panel + widget 共享） ─────────────────
+
+[[setting]]
+key = "max_size"
+type = "int"
+label_key = "settings.max_size.label"
+description_key = "settings.max_size.desc"
+default = 1920
+min = 256
+max = 4096
+
+[[setting]]
+key = "bit_rate"
+type = "int"
+label_key = "settings.bit_rate.label"
+description_key = "settings.bit_rate.desc"
+default = 8
+min = 1
+max = 100
+
+[[setting]]
+key = "max_fps"
+type = "int"
+label_key = "settings.max_fps.label"
+description_key = "settings.max_fps.desc"
+default = 60
+min = 1
+max = 120
+
+[[setting]]
+key = "turn_screen_off"
+type = "bool"
+label_key = "settings.turn_screen_off.label"
+description_key = "settings.turn_screen_off.desc"
+default = false
+
+[[setting]]
+key = "record"
+type = "bool"
+label_key = "settings.record.label"
+description_key = "settings.record.desc"
+default = false
+
+[[setting]]
+key = "record_max_files"
+type = "int"
+label_key = "settings.record_max_files.label"
+description_key = "settings.record_max_files.desc"
+default = 10
+min = 1
+max = 100
+
+[[setting]]
+key = "poll_interval_ms"
+type = "int"
+label_key = "settings.poll_interval.label"
+description_key = "settings.poll_interval.desc"
+default = 3000
+min = 1000
+max = 30000
+
+# ───────────────── entries ─────────────────
+
+# 后台 service：设备轮询、自动 connect、scrcpy 进程管理、状态发布
+[[service]]
+id = "core"
+entry = "service.luau"
+
+# bar widget：任务栏状态图标（绿=投屏中 / 灰=未投屏）
+[[widget]]
+id = "status"
+entry = "widget.luau"
+
+# panel：主力配置 UI（用完即关弹窗）
+[[panel]]
+id = "main"
+entry = "panel.luau"
+width = 380
+height = 520
+placement = "floating"
+position = "center"
+open_near_click = true
+
+# launcher_provider：启动器里输 scrcpy 搜设备
+[[launcher_provider]]
+id = "device"
+entry = "launcher.luau"
+prefix = "ph"
+glyph = "device-mobile"
