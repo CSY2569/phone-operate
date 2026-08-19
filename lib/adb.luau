@@ -67,4 +67,19 @@ function M.usbMode(device_id)
 	noctalia.runAsync("adb -s " .. shell.quote(device_id) .. " usb")
 end
 
+-- 取设备 WiFi IP（USB 连接也能拿到，用于与 KDE Connect 的 ipv4 匹配）。
+-- 命令失败或无线未连接时回调 nil。
+function M.deviceIpAsync(device_id, cb)
+	noctalia.runAsync(
+		"adb -s " .. shell.quote(device_id) .. " shell ip -4 addr show wlan0 2>/dev/null",
+		function(result)
+			if result.exitCode ~= 0 then
+				cb(nil)
+				return
+			end
+			cb(result.stdout:match("inet (%d+%.%d+%.%d+%.%d+)"))
+		end
+	)
+end
+
 return M

@@ -626,6 +626,7 @@ local function refreshAdbDevices()
 		for _, ad in ipairs(adbList) do
 			local customName = persistence.loadName(ad.id)
 			local label = customName or ad.model or ad.id
+			local ip = adbIpOf(ad.id)
 			devices["adb:" .. ad.id] = {
 				id = "adb:" .. ad.id,
 				adbId = ad.id,
@@ -636,11 +637,31 @@ local function refreshAdbDevices()
 				isReachable = ad.online == true,
 				transport = ad.transport,
 				model = ad.model,
-				ip = adbIpOf(ad.id),
+				ip = ip,
 			}
 			table.insert(deviceOrder, "adb:" .. ad.id)
 		end
 		publishDevices()
+		-- USB 设备没有 IP：异步取 WiFi IP（带缓存），用于与 KDE Connect 匹配。
+		-- 无线设备序列号自带 IP，跳过。
+		local now = os.time()
+		for _, ad in ipairs(adbList) do
+			if not adbIpOf(ad.id) and ad.online == true then
+				local d = devices["adb:" .. ad.id]
+				if d and (not d.ip or now - (d._ipFetchedAt or 0) > 60) then
+					d._ipFetchedAt = now
+					devices["adb:" .. ad.id] = d
+					adb.deviceIpAsync(ad.id, function(ip)
+						local d2 = devices["adb:" .. ad.id]
+						if d2 and ip and ip ~= "" then
+							d2.ip = ip
+							devices["adb:" .. ad.id] = d2
+							publishDevices()
+						end
+					end)
+				end
+			end
+		end
 	end)
 end
 
