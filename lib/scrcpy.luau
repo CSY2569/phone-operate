@@ -16,8 +16,9 @@ function M.buildCommand(device, params)
 	end
 
 	-- 码率（用户输入 Mbps，转为 "8M" 格式）
+	-- scrcpy 3.0+ 将 --bit-rate 重命名为 --video-bit-rate；suffix M=x1000000
 	if params.bit_rate then
-		table.insert(parts, "--bit-rate")
+		table.insert(parts, "--video-bit-rate")
 		table.insert(parts, shell.quote(tostring(params.bit_rate) .. "M"))
 	end
 
