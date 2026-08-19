@@ -733,9 +733,9 @@ local function paramsPanel(target)
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
-	-- 底部小字提示（替代原「投屏参数」标题卡片，节省空间）
+	-- 底部小字提示（替代原「投屏参数」标题卡片，节省空间），居中显示
 	table.insert(scrollItems, ui.label({ key = "params-hint-foot", text = t("panel.params_hint"),
-		fontSize = 12, color = "on_surface_variant" }))
+		fontSize = 12, color = "on_surface_variant", textAlign = "center" }))
 	return ui.column({ key = "left-panel", width = 340 }, {
 		ui.scroll({ key = "left-panel-scroll", flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
 	})
