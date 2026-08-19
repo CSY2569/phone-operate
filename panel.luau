@@ -563,16 +563,20 @@ local function paramsPanel(target)
 	-- 用内存缓存，避免每次 render 从磁盘加载导致拖动回退
 	local params = paramsFor(adbId)
 
-	local function commit()
+	local function commit(saveCustom)
 		persistence.saveParams(adbId, params)
-		persistence.saveCustom(adbId, params)
+		-- custom 档只在用户手动调整时更新（滑块/开关），预设应用不覆盖它，
+		-- 否则点预设后自定义档会被预设值污染
+		if saveCustom then
+			persistence.saveCustom(adbId, params)
+		end
 		sendCmd({ op = "restart_params", device = adbId, params = params })
 	end
 
 	local function applyPreset(key, p)
 		activePreset = key
 		for k, v in pairs(p) do params[k] = v end
-		commit()
+		commit(false)
 		render()
 	end
 
@@ -619,7 +623,7 @@ local function paramsPanel(target)
 				local c = persistence.loadCustom(adbId)
 				if c then
 					for k, v in pairs(c) do params[k] = v end
-					commit()
+					commit(false)
 				end
 				render()
 			end, flexGrow = 1 }),
@@ -639,7 +643,7 @@ local function paramsPanel(target)
 				end,
 				onDragEnd = function()
 					activePreset = "custom"
-					commit()
+					commit(true)
 					render()
 				end,
 				flexGrow = 1,
@@ -664,7 +668,7 @@ local function paramsPanel(target)
 					onChange = function(v)
 						setter(v == "true")
 						activePreset = "custom"
-						commit()
+						commit(true)
 						render()
 					end,
 				}),
