@@ -122,6 +122,33 @@ local devices = {}
 local deviceOrder = {}
 local intervalMs -- forward-declared
 
+-- wifi 序列号形如 "192.168.1.3:5555"，host 即设备 IP；usb 序列号无 IP
+local function adbIpOf(serial)
+	return serial:match("^(%d+%.%d+%.%d+%.%d+):%d+$")
+end
+
+-- 用局域网 IP 判断 adb 与 KDE Connect 是否同一台设备：
+-- 给 KDE 设备记录填充 adbId（匹配到的 adb 序列号），使 KDE 设备卡也能发起投屏。
+local function matchKdeToAdb()
+	local ipToAdb = {}
+	for _, id in ipairs(deviceOrder) do
+		local d = devices[id]
+		if d and d.source == "adb" and d.ip then
+			ipToAdb[d.ip] = d.adbId
+		end
+	end
+	for _, id in ipairs(deviceOrder) do
+		local d = devices[id]
+		if d and d.source ~= "adb" then
+			local match = d.ipv4 and ipToAdb[d.ipv4] or nil
+			if d.adbId ~= match then
+				d.adbId = match
+				devices[id] = d
+			end
+		end
+	end
+end
+
 local function snapshotDevices()
 	local snap = {}
 	for _, id in ipairs(deviceOrder) do
@@ -132,6 +159,7 @@ local function snapshotDevices()
 end
 
 local function publishDevices()
+	matchKdeToAdb()
 	noctalia.state.set("pc.devices", snapshotDevices())
 	noctalia.state.set("pc.order", deviceOrder)
 end
@@ -596,6 +624,7 @@ local function refreshAdbDevices()
 				isReachable = ad.online == true,
 				transport = ad.transport,
 				model = ad.model,
+				ip = adbIpOf(ad.id),
 			}
 			table.insert(deviceOrder, "adb:" .. ad.id)
 		end
@@ -777,37 +806,69 @@ local function handleCommand(cmd)
 				.. " " .. shellQuote(MPRIS_IFACE) .. " volume "
 				.. shellQuote("<int32 " .. tostring(vol) .. ">"),
 			function() refreshDevices() end)
-	-- ── scrcpy 操作（source="adb" 的设备） ──
-	elseif op == "cast" then
-		local adbId = cmd.device
-		local params = persistence.loadParams(adbId)
-		scrcpy.start({ id = adbId }, params)
-		scrcpyRunning[adbId] = true
-		publishRunning()
-		if params.record then cleanupRecordings() end
-		local d = devices["adb:" .. adbId]
-		noctalia.notify(t("notify.started"):gsub("{name}", d and d.name or adbId))
-	elseif op == "stop_cast" then
-		scrcpy.stop(cmd.device)
-		scrcpyRunning[cmd.device] = nil
-		publishRunning()
-		local d = devices["adb:" .. cmd.device]
-		noctalia.notify(t("notify.stopped"):gsub("{name}", d and d.name or cmd.device))
-	elseif op == "restart_params" then
-		local adbId = cmd.device
-		local wasRunning = scrcpyRunning[adbId] ~= nil
-		if wasRunning then scrcpy.stop(adbId) end
-		local params = cmd.params or persistence.loadParams(adbId)
-		persistence.saveParams(adbId, params)
-		if wasRunning then scrcpy.start({ id = adbId }, params) end
-		publishRunning()
-	elseif op == "stop_all_cast" then
-		for adbId, _ in pairs(scrcpyRunning) do
-			scrcpy.stop(adbId)
-		end
-		scrcpyRunning = {}
-		publishRunning()
-	elseif op == "adb_pair" then
+		-- ── scrcpy 操作（source="adb" 的设备） ──
+		elseif op == "cast" then
+			local adbId = cmd.device
+			local params = cmd.params or persistence.loadParams(adbId)
+			persistence.saveParams(adbId, params)
+			scrcpy.start({ id = adbId }, params)
+			scrcpyRunning[adbId] = true
+			publishRunning()
+			if params.record then cleanupRecordings() end
+			local d = devices["adb:" .. adbId]
+			noctalia.notify(t("notify.started"):gsub("{name}", d and d.name or adbId))
+		elseif op == "pair_and_cast" then
+			-- 首次无线连接：adb pair（配对端口+配对码）→ adb connect（调试端口 5555）→ scrcpy
+			local ip = cmd.address or ""
+			local port = tostring(cmd.port or "")
+			local code = tostring(cmd.code or "")
+			local serial = ip .. ":5555"
+			local params = cmd.params or persistence.loadParams(serial)
+			if ip == "" or port == "" or code == "" then
+				noctalia.notifyError(t("error.pair_failed"), "missing address/port/code")
+				return
+			end
+			adb.pairAsync(ip .. ":" .. port, code, function(pairOk, pairOut)
+				if not pairOk then
+					noctalia.notifyError(t("error.pair_failed"), pairOut or "")
+					return
+				end
+				noctalia.notify(t("notify.pair_success"))
+				adb.connectAsync(serial, function(connOk, connOut)
+					if not connOk then
+						noctalia.notifyError(t("error.conn_failed"), connOut or "")
+						return
+					end
+					persistence.saveParams(serial, params)
+					scrcpyRunning[serial] = true
+					scrcpy.start({ id = serial }, params)
+					publishRunning()
+					if params.record then cleanupRecordings() end
+					refreshAdbDevices()
+					noctalia.notify(t("notify.started"):gsub("{name}", ip))
+				end)
+			end)
+		elseif op == "stop_cast" then
+			scrcpy.stop(cmd.device)
+			scrcpyRunning[cmd.device] = nil
+			publishRunning()
+			local d = devices["adb:" .. cmd.device]
+			noctalia.notify(t("notify.stopped"):gsub("{name}", d and d.name or cmd.device))
+		elseif op == "restart_params" then
+			local adbId = cmd.device
+			local wasRunning = scrcpyRunning[adbId] ~= nil
+			if wasRunning then scrcpy.stop(adbId) end
+			local params = cmd.params or persistence.loadParams(adbId)
+			persistence.saveParams(adbId, params)
+			if wasRunning then scrcpy.start({ id = adbId }, params) end
+			publishRunning()
+		elseif op == "stop_all_cast" then
+			for adbId, _ in pairs(scrcpyRunning) do
+				scrcpy.stop(adbId)
+			end
+			scrcpyRunning = {}
+			publishRunning()
+		elseif op == "adb_pair" then
 		adb.pairAsync(cmd.address, cmd.code, function(ok)
 			if ok then
 				noctalia.notify(t("notify.pair_success"))

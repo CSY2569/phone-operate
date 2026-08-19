@@ -35,17 +35,46 @@ local mutedPrevVolume = {}
 local deviceNameEdits = {}
 
 -- ── scrcpy 参数状态 ──────────────────────────────────────────────────────────
-local paramsExpanded = true
+local paramsExpanded = false
 local activePreset = nil
 local pairExpanded = false
 local pairAddr = ""
 local pairCode = ""
+-- 首次无线投屏的配对输入（端口号 + 配对码）
+local castPort = ""
+local castCode = ""
 
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
 	perf = { max_size = 1280, bit_rate = 8,  max_fps = 60 },
 	save = { max_size = 1024, bit_rate = 4,  max_fps = 30 },
 }
+
+-- 投屏目标解析：adb 设备用它自身；KDE 设备用 IP 匹配到的 adb 序列号
+-- （service 已按局域网 IP 匹配填充 d.adbId），无匹配时回退到 "IP:5555"。
+local function ipFromSerial(serial)
+	return serial:match("^(%d+%.%d+%.%d+%.%d+):%d+$")
+end
+
+local function castTarget(d)
+	if not d then return nil end
+	local allDevices = noctalia.state.get("pc.devices") or {}
+	local adbId
+	if d.source == "adb" then
+		adbId = d.adbId
+	else
+		adbId = d.adbId or (d.ipv4 and (d.ipv4 .. ":5555"))
+	end
+	if not adbId then return nil end
+	local adbDev = allDevices["adb:" .. adbId]
+	local ip = adbDev and adbDev.ip or (d.source ~= "adb" and d.ipv4) or ipFromSerial(adbId)
+	return {
+		adbId = adbId,
+		ip = ip,
+		online = adbDev and adbDev.isReachable == true or false,
+		transport = adbDev and adbDev.transport or "wifi",
+	}
+end
 
 -- ── 工具 ─────────────────────────────────────────────────────────────────────
 local function glyphForType(tp)
@@ -107,7 +136,8 @@ local function headerRow(order, devices, sel)
 					flexGrow = 1,
 					tooltip = devName,
 					onClick = function()
-						paramsExpanded = true
+						-- 切换设备不自动展开投屏参数，避免打断浏览
+						paramsExpanded = false
 						sendCmd({ op = "select", device = id })
 					end,
 				}))
@@ -303,11 +333,16 @@ local function rightColumn(d)
 		local runningMap = noctalia.state.get("pc.running") or {}
 		local casting = runningMap[d.adbId] == true
 		local btns = {}
+		-- 未投屏时点「投屏」展开左侧参数面板（含开始投屏），不再直接开投
 		table.insert(btns, vActionBtn(casting and t("action.stop") or t("action.cast"),
 			casting and "player-stop" or "player-play",
 			function()
-				sendCmd(casting and { op = "stop_cast", device = d.adbId }
-					or { op = "cast", device = d.adbId })
+				if casting then
+					sendCmd({ op = "stop_cast", device = d.adbId })
+				else
+					paramsExpanded = true
+					render()
+				end
 			end, casting and "destructive" or "primary"))
 		table.insert(btns, vActionBtn(t("panel.params"), "adjustments",
 			function()
@@ -324,9 +359,26 @@ local function rightColumn(d)
 	local reachable = d.isReachable == true
 	local paired = d.isPaired == true
 	local btns = {}
+	-- KDE 设备：若按局域网 IP 匹配到了 adb 设备（service 填充 d.adbId），
+	-- 提供投屏入口；否则只能显示基础操作
+	local cast = castTarget(d)
 	if reachable and paired then
+		if cast then
+			local runningMap = noctalia.state.get("pc.running") or {}
+			local casting = runningMap[cast.adbId] == true
+			table.insert(btns, vActionBtn(casting and t("action.stop") or t("action.cast"),
+				casting and "player-stop" or "player-play",
+				function()
+					if casting then
+						sendCmd({ op = "stop_cast", device = cast.adbId })
+					else
+						paramsExpanded = true
+						render()
+					end
+				end, casting and "destructive" or "primary"))
+		end
 		table.insert(btns, vActionBtn(t("action.ring"), "bell-ringing",
-			function() sendCmd({ op = "ring", device = d.id }) end, "primary"))
+			function() sendCmd({ op = "ring", device = d.id }) end, cast and "outline" or "primary"))
 		table.insert(btns, vActionBtn(t("action.ping"), "message",
 			function() sendCmd({ op = "ping", device = d.id }) end))
 		table.insert(btns, vActionBtn(t("action.browse"), "folder",
@@ -479,8 +531,8 @@ local function smsComposer(d)
 end
 
 -- ── 投屏参数面板（adb 设备，覆盖左栏） ────────────────────────────────────────
-local function paramsPanel(d)
-	local adbId = d.adbId
+local function paramsPanel(target)
+	local adbId = target.adbId
 	local params = persistence.loadParams(adbId)
 
 	local function commit()
@@ -494,6 +546,23 @@ local function paramsPanel(d)
 		for k, v in pairs(p) do params[k] = v end
 		commit()
 		render()
+	end
+
+	local function startCast()
+		-- 设备已在线（USB 或 wifi 已连接）：直接投屏
+		if target.online then
+			sendCmd({ op = "cast", device = adbId, params = params })
+			return
+		end
+		-- wifi 首次连接：需配对端口 + 配对码
+		if target.ip then
+			if castPort == "" or castCode == "" then
+				noctalia.notifyError(t("error.pair_failed"), t("panel.pair_missing"))
+				return
+			end
+			sendCmd({ op = "pair_and_cast", address = target.ip, port = castPort,
+				code = castCode, params = params })
+		end
 	end
 
 	local children = {}
@@ -574,13 +643,41 @@ local function paramsPanel(d)
 	toggleBlock("panel.record", "panel.record_desc",
 		params.record or false, function(v) params.record = v end)
 
+	-- 首次无线连接：配对端口 + 配对码（仅当设备未在线且知道 IP 时显示）
+	local pairInput
+	if not target.online and target.ip then
+		pairInput = ui.column({ key = "cast-pair", gap = 6, padding = 10, radius = 8,
+			fill = "primary/0.08", border = "primary/0.25", borderWidth = 1 }, {
+			ui.label({ text = t("panel.pair_first_title"), fontSize = 11, fontWeight = "bold",
+				color = "primary" }),
+			ui.label({ text = t("panel.pair_first_hint"), fontSize = 10, color = "on_surface_variant" }),
+			ui.row({ key = "cast-pair-ports", gap = 6 }, {
+				ui.input({ key = "cast-port", placeholder = t("panel.pair_port_placeholder"),
+					value = castPort, controlSize = "sm", flexGrow = 1,
+					onChange = function(v) castPort = v end }),
+				ui.input({ key = "cast-code", placeholder = t("panel.pair_code_placeholder"),
+					value = castCode, controlSize = "sm", width = 120,
+					onChange = function(v) castCode = v end }),
+			}),
+		})
+	end
+
+	-- 开始投屏：在线直接投；离线 wifi 需先配对
+	local startBtn = ui.button({ key = "cast-start", text = t("panel.start_cast"), glyph = "player-play",
+		variant = "primary", controlSize = "md",
+		onClick = startCast })
+
 	local scrollItems = {
 		ui.column({ gap = 6, padding = 10, radius = 8, fill = "surface/0.5",
 			border = "on_surface/0.1", borderWidth = 1 },
 			{ ui.label({ text = t("panel.params"), fontSize = 12, fontWeight = "bold",
 				color = "on_surface" }),
 				ui.label({ text = t("panel.params_hint"), fontSize = 10, color = "on_surface_variant" }) }),
+		startBtn,
 	}
+	if pairInput then
+		table.insert(scrollItems, pairInput)
+	end
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
@@ -591,10 +688,12 @@ end
 
 -- ── 左栏 ─────────────────────────────────────────────────────────────────────
 local function leftColumn(d)
+	-- 投屏参数面板：adb 设备，或 KDE 设备匹配到 adb 目标时（paramsExpanded 时展开）
+	local target = castTarget(d)
+	if target and paramsExpanded then
+		return paramsPanel(target)
+	end
 	if d.source == "adb" then
-		if paramsExpanded then
-			return paramsPanel(d)
-		end
 		return ui.column({ key = "left-hint", flexGrow = 1, minWidth = 360 }, {
 			ui.scroll({ key = "left-hint-scroll", flexGrow = 1, gap = 12, padding = 0 }, {
 				ui.column({ gap = 6, padding = 10, radius = 8, fill = "surface/0.5" }, {

@@ -16,6 +16,8 @@
   "error": {
     "browse_failed": "Failed to browse device",
     "cli_failed": "Command failed",
+    "conn_failed": "Wireless connection failed",
+    "pair_failed": "Pairing failed",
     "pick_failed": "Failed to open file picker",
     "pick_in_progress": "A file picker is already open",
     "share_failed": "Failed to share"
@@ -58,7 +60,11 @@
     "pair_add": "Pair new wireless device",
     "pair_btn": "Pair (ADB)",
     "pair_code_placeholder": "Pairing code (6 digits)",
+    "pair_first_hint": "Enter the pairing port shown on your phone and its 6-digit code, then press Start Casting.",
+    "pair_first_title": "First-time wireless setup",
     "pair_hint": "The **pairing port** is one-time — used by `adb pair` with the 6-digit code. The **debug port** is for long-term `adb connect` / scrcpy. After pairing, use the debug port to connect.",
+    "pair_missing": "Enter both the pairing port and code first.",
+    "pair_port_placeholder": "Pairing port",
     "params": "Cast Parameters",
     "params_hint": "Applies to the selected device only",
     "preset_custom": "Custom",
@@ -71,6 +77,7 @@
     "sms_dest": "Phone number",
     "sms_msg": "Message",
     "sms_send": "Send",
+    "start_cast": "Start Casting",
     "turn_screen_off": "Screen Off",
     "turn_screen_off_desc": "Phone screen off while mirroring"
   },
