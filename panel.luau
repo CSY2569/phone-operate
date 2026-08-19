@@ -45,6 +45,20 @@ local castPort = ""
 local castDebugPort = "5555"
 local castCode = ""
 
+-- 每设备参数内存缓存 [adbId] = params。paramsPanel 每次 render 会重建，
+-- 若每次都从磁盘 loadParams，拖动滑块时 onChange 的内存修改会被磁盘旧值
+-- 覆盖（数字回退）。缓存保证 render 期间读到的都是最新值，commit 才写盘。
+local paramCache = {}
+
+local function paramsFor(adbId)
+	local p = paramCache[adbId]
+	if not p then
+		p = persistence.loadParams(adbId)
+		paramCache[adbId] = p
+	end
+	return p
+end
+
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
 	perf = { max_size = 1280, bit_rate = 8,  max_fps = 60 },
@@ -546,7 +560,8 @@ end
 -- ── 投屏参数面板（adb 设备，覆盖左栏） ────────────────────────────────────────
 local function paramsPanel(target)
 	local adbId = target.adbId
-	local params = persistence.loadParams(adbId)
+	-- 用内存缓存，避免每次 render 从磁盘加载导致拖动回退
+	local params = paramsFor(adbId)
 
 	local function commit()
 		persistence.saveParams(adbId, params)
