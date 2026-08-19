@@ -172,13 +172,8 @@ local function deviceCard(dev, rows)
 		end,
 	}, {
 		ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
-		ui.column({ gap = 3, flexGrow = 1 }, {
-			ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface" }),
-			ui.label({
-				text = dev.transport .. " · " .. dev.id,
-				fontSize = 11, color = "surface_variant",
-			}),
-		}),
+		-- 只显示设备名；transport·id 与右栏参数头重复且对用户无用，已移除
+		ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface", flexGrow = 1 }),
 		ui.row({ fill = pillFill, radius = 8, paddingH = 8, paddingV = 3 }, {
 			ui.label({ text = statusText, fontSize = 11, color = pillColor }),
 		}),
@@ -239,18 +234,10 @@ local function paramsPanel()
 		return ui.column({ gap = 8, flexGrow = 1 }, rows)
 	end
 
-	local dev = (function()
-		for _, d in ipairs(devices) do
-			if d.id == selectedDevice then return d end
-		end
-		return nil
-	end)()
-	local devLabel = dev and dev.label or selectedDevice
-
-	-- 标题 + 提示
+	-- 区段标题：右栏本就对应选中的设备，设备名与左栏重复且对用户无用，只保留「参数」+ 提示
 	table.insert(rows, ui.column({ gap = 2 }, {
 		ui.label({
-			text = noctalia.tr("panel.current_device") .. " · " .. devLabel,
+			text = noctalia.tr("panel.section.params"),
 			fontWeight = "bold",
 		}),
 		ui.label({
