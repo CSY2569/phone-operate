@@ -895,7 +895,7 @@ local function handleCommand(cmd)
 				noctalia.notify(t("notify.started"):gsub("{name}", ip))
 			end
 
-			local function tryConnect(candidatesLeft, onAllFail)
+			local function tryConnect(candidatesLeft, onAllFail, offlineSeen)
 				local tried = {}
 				local function next()
 					local target
@@ -907,7 +907,12 @@ local function handleCommand(cmd)
 						end
 					end
 					if not target then
-						onAllFail()
+						if offlineSeen then
+							-- 连上过但设备 offline：是 Wi-Fi 连接问题，配对解决不了
+							noctalia.notifyError(t("error.device_offline"), ip)
+						else
+							onAllFail()
+						end
 						return
 					end
 					local trySerial = ip .. ":" .. target
@@ -916,13 +921,28 @@ local function handleCommand(cmd)
 							.. " (" .. tostring(trySerial) .. ")"
 							.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
 						if connOk then
-							finishCast(trySerial)
+							-- connect 返回 "already connected" 但设备可能 offline
+							-- （无线调试连接在手机休眠后常见）：查状态确认可投屏
+							adb.deviceStateAsync(trySerial, function(state)
+								noctalia.log("[phone-operate] device state (" .. trySerial .. ") = "
+									.. tostring(state))
+								if state == "device" then
+									finishCast(trySerial)
+								elseif state == "offline" then
+									-- offline 连接无意义：断开后试下一个端口
+									adb.disconnect(trySerial)
+									next(true)
+								else
+									-- 不存在或未授权：试下一个端口
+									next(false)
+								end
+							end)
 							return
 						end
-						next()
+						next(false)
 					end)
 				end
-				next()
+				next(false)
 			end
 
 			-- 第一步：直接 connect（已配对过则直接成功，无需重新配对）

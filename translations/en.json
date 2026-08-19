@@ -19,6 +19,7 @@
     "cli_failed": "Command failed",
     "conn_failed": "Wireless connection failed",
     "conn_hint": "Tried 5555 and the pairing port, all rejected. On your phone's Wireless debugging main screen, read the port under \"IP address & Port\" and enter it in the Debug port field, then retry.",
+    "device_offline": "Device connected but offline. Keep the phone's screen on and Wi-Fi stable, wait a moment and retry; if it persists, re-enable Wireless debugging.",
     "pair_failed": "Pairing failed",
     "pick_failed": "Failed to open file picker",
     "pick_in_progress": "A file picker is already open",

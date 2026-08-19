@@ -46,6 +46,24 @@ function M.connectAsync(address, cb)
 	end)
 end
 
+-- 查设备状态（"device"=就绪、"offline"=离线、"unauthorized"=未授权、nil=不存在）
+function M.deviceStateAsync(device_id, cb)
+	noctalia.runAsync("adb devices", function(result)
+		if result.exitCode ~= 0 then
+			cb(nil)
+			return
+		end
+		for line in result.stdout:gmatch("[^\n]+") do
+			local serial, state = line:match("^(%S+)%s+(%S+)")
+			if serial == device_id then
+				cb(state)
+				return
+			end
+		end
+		cb(nil)
+	end)
+end
+
 -- adb pair IP:PORT 配对码（直接传参，不依赖 echo 管道）
 -- 配对码限定 6 位纯数字，避免注入；address 经 shell.quote 转义
 function M.pairAsync(address, code, cb)
