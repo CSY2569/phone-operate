@@ -357,8 +357,10 @@ end
 
 -- ── 右栏操作按钮 ─────────────────────────────────────────────────────────────
 local function vActionBtn(text, glyph, onClick, variant, tooltip)
+	-- width 固定为右栏内容宽（110 - scroll padding 8*2 = 94），
+	-- 避免按钮按文本自然宽溢出侧边栏；label 超宽时自动省略号。
 	return ui.button({ text = text, glyph = glyph, variant = variant or "outline",
-		controlSize = "md", tooltip = tooltip, onClick = onClick })
+		controlSize = "sm", width = 94, tooltip = tooltip, onClick = onClick })
 end
 
 local function rightColumn(d)
@@ -870,7 +872,6 @@ function render()
 				leftColumn(d),
 				rightColumn(d),
 			}),
-			infoFooter(d),
 		})
 	end
 
@@ -878,10 +879,15 @@ function render()
 		headerRow(visibleOrder, devices, sel),
 		middle,
 	}
+	-- 配对表单（展开时）在 IP 地址上方
 	local pair = pairSection()
 	if pair then table.insert(rootChildren, pair) end
+	-- IP 地址固定在底部（scroll 之外），与底部只留一半间距
+	if sel and devices[sel] then
+		table.insert(rootChildren, infoFooter(devices[sel]))
+	end
 
-	panel.render(ui.column({ gap = 10, padding = 12, flexGrow = 1 }, rootChildren))
+	panel.render(ui.column({ gap = 5, padding = 12, flexGrow = 1 }, rootChildren))
 end
 
 function onOpen(_context) render() end
