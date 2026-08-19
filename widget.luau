@@ -2,6 +2,7 @@
 -- bar widget：状态图标。绿 = 正在投屏（至少一台 scrcpy 运行中），灰 = 未投屏。
 -- 注意语义是"是否正在投屏"而非"有无设备"，订阅 KEY_RUNNING。
 local state = require("./lib/state.luau")
+local ipc = require("./lib/ipc.luau")
 
 local running = false
 
@@ -38,10 +39,7 @@ function onRightClick()
 	if not running then
 		local devs = noctalia.state.get(state.KEY_DEVICES) or {}
 		if #devs > 0 then
-			noctalia.runAsync({
-				"noctalia", "msg", "plugin", "icefish/phone-operate:core", "all",
-				"start", noctalia.json.encode({ device_id = devs[1].id }),
-			})
+			ipc.send("start", { device_id = devs[1].id })
 		end
 	end
 end

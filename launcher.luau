@@ -1,6 +1,7 @@
 -- launcher.luau
 -- launcher_provider：启动器里输 scrcpy 搜设备，选中即启动。
 local state = require("./lib/state.luau")
+local ipc = require("./lib/ipc.luau")
 
 function onQuery(text)
 	local devs = noctalia.state.get(state.KEY_DEVICES) or {}
@@ -36,8 +37,5 @@ end
 function onActivate(id)
 	if id == "none" then return end
 	-- 选中即启动该设备的 scrcpy
-	noctalia.runAsync({
-		"noctalia", "msg", "plugin", "icefish/phone-operate:core", "all",
-		"start", noctalia.json.encode({ device_id = id }),
-	})
+	ipc.send("start", { device_id = id })
 end

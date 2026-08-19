@@ -3,6 +3,7 @@
 -- 设备选择（含 inline 重命名）+ 参数配置（改参即重启）+ 启动/停止/断开/回 USB + 配对新设备。
 local state = require("./lib/state.luau")
 local persistence = require("./lib/persistence.luau")
+local ipcMod = require("./lib/ipc.luau")
 
 local devices = {}
 local selectedDevice = nil  -- 当前选中的 device_id
@@ -12,12 +13,9 @@ local renameVal = ""        -- 重命名输入框当前值
 local pairAddr = ""         -- 配对地址输入框当前值
 local pairCode = ""         -- 配对码输入框当前值
 
--- ─── 工具：发 IPC 给 service ───
+-- ─── 工具：发 IPC 给 service（委托给 ipc 模块，走 shell 字符串形式）───
 local function ipc(event, payload)
-	noctalia.runAsync({
-		"noctalia", "msg", "plugin", "icefish/phone-operate:core", "all",
-		event, noctalia.json.encode(payload),
-	})
+	ipcMod.send(event, payload)
 end
 
 local function ipcRestartWithParams()

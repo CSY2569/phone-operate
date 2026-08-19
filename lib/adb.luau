@@ -1,13 +1,14 @@
 -- lib/adb.luau
--- adb 交互封装。所有命令走 noctalia.runAsync（数组形式，需 plugin_api 24）。
--- adb pair 需要 stdin，runAsync 不支持写 stdin，改用 shell 串形式（走 /bin/sh -c，支持管道）。
+-- adb 交互封装。所有命令走 noctalia.runAsync 字符串形式（/bin/sh -c）。
+-- 数组形式需未发布的 plugin_api=24，故不用；用户输入经 shell.quote 转义。
 local M = {}
+local shell = require("./shell.luau")
 
 -- adb devices -L 输出示例：
 --   cf56f01f               device usb:5-1 product:piano model:25091RP04C
 --   192.168.1.3:5555       device product:piano
 function M.listDevicesAsync(cb)
-	noctalia.runAsync({ "adb", "devices", "-L" }, function(result)
+	noctalia.runAsync("adb devices -L", function(result)
 		local out = {}
 		if result.exitCode == 0 then
 			for line in result.stdout:gmatch("[^\n]+") do
@@ -35,7 +36,7 @@ end
 
 -- adb connect IP:PORT
 function M.connectAsync(address, cb)
-	noctalia.runAsync({ "adb", "connect", address }, function(result)
+	noctalia.runAsync("adb connect " .. shell.quote(address), function(result)
 		-- "connected to ..." 或 "already connected" 算成功
 		local ok = result.exitCode == 0 and result.stdout:match("connected") ~= nil
 		cb(ok, result.stdout)
@@ -43,9 +44,10 @@ function M.connectAsync(address, cb)
 end
 
 -- adb pair IP:PORT，通过 shell 管道喂配对码
--- 配对码限定 6 位纯数字，避免 shell 注入；address 为 IP:端口，基本安全
+-- 配对码限定 6 位纯数字，避免注入；address 经 shell.quote 转义
 function M.pairAsync(address, code, cb)
-	local cmd = string.format("echo '%s' | adb pair %s", code, address)
+	local cmd = string.format("echo %s | adb pair %s",
+		shell.quote(code), shell.quote(address))
 	noctalia.runAsync(cmd, function(result)
 		local ok = result.exitCode == 0 and result.stdout:match("successfully") ~= nil
 		cb(ok, result.stdout)
@@ -54,12 +56,12 @@ end
 
 -- adb disconnect <device_id>
 function M.disconnect(device_id)
-	noctalia.runAsync({ "adb", "disconnect", device_id })
+	noctalia.runAsync("adb disconnect " .. shell.quote(device_id))
 end
 
 -- adb -s <id> usb（切回 USB 模式）
 function M.usbMode(device_id)
-	noctalia.runAsync({ "adb", "-s", device_id, "usb" })
+	noctalia.runAsync("adb -s " .. shell.quote(device_id) .. " usb")
 end
 
 return M

@@ -6,6 +6,7 @@ local adb = require("./lib/adb.luau")
 local scrcpy = require("./lib/scrcpy.luau")
 local state = require("./lib/state.luau")
 local models = require("./lib/models.luau")
+local shell = require("./lib/shell.luau")
 
 local devices = {}     -- 当前设备列表（内存模型）
 local running = {}     -- device_id -> true（已启动的 scrcpy 集合，PID 无法获取）
@@ -75,7 +76,8 @@ end
 
 -- ─── 网络检查：WiFi/以太网是否拿到 IP ───
 local function checkNetworkAsync(cb)
-	noctalia.runAsync({ "sh", "-c", "ip -4 addr show | grep -q 'inet ' && echo ok || echo no" }, function(result)
+	-- 字符串形式走 /bin/sh -c，管道生效；无需 sh -c 包裹
+	noctalia.runAsync("ip -4 addr show | grep -q 'inet ' && echo ok || echo no", function(result)
 		local ok = result.exitCode == 0 and result.stdout:match("ok") ~= nil
 		cb(ok)
 	end)
@@ -89,7 +91,7 @@ local function retryConnect(device_id, label, attempt)
 		return
 	end
 	local delays = { [1] = 5, [2] = 10, [3] = 20 }
-	noctalia.runAsync({ "sleep", tostring(delays[attempt]) }, function()
+	noctalia.runAsync("sleep " .. tostring(delays[attempt]), function()
 		adb.connectAsync(device_id, function(ok)
 			if ok then
 				refreshDevices()
@@ -131,10 +133,11 @@ end
 function cleanupRecordings()
 	local maxFiles = noctalia.getConfig("record_max_files") or 10
 	local dir = noctalia.pluginDataDir()
-	noctalia.runAsync({ "sh", "-c", string.format(
+	-- 字符串形式走 /bin/sh -c，管道生效；dir 经 shell.quote 转义防路径含空格
+	noctalia.runAsync(string.format(
 		"ls -1t %s/rec_*.mp4 2>/dev/null | tail -n +%d | xargs -r rm -f",
-		dir, maxFiles + 1
-	) }, function(result)
+		shell.quote(dir), maxFiles + 1
+	), function(result)
 		if result.exitCode ~= 0 and result.stderr ~= "" then
 			noctalia.log("录屏清理异常: " .. result.stderr)
 		end

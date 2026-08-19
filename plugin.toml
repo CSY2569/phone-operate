@@ -1,7 +1,7 @@
 id = "icefish/phone-operate"
 name = "Phone Operate"
 version = "0.1.0"
-plugin_api = 24
+plugin_api = 22
 author = "icefish"
 license = "MIT"
 description = "Control your Android phone via scrcpy — launch, configure, multi-device."
