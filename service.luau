@@ -13,6 +13,16 @@ local running = {}     -- device_id -> true（已启动的 scrcpy 集合，PID �
 local lastNetState = nil
 local netCheckCounter = 0
 
+-- ─── 工具：运行状态仅变化时发布（避免每轮询触发 widget/panel 重渲染）───
+local lastRunningJson = nil
+local function publishRunning()
+	local json = noctalia.json.encode(running)
+	if json ~= lastRunningJson then
+		lastRunningJson = json
+		noctalia.state.set(state.KEY_RUNNING, running)
+	end
+end
+
 -- ─── 工具：IPC payload 兼容 string/table ───
 -- 参考文档未明确 onIpc payload 是否预解码，此处两者兼容。
 local function decodePayload(p)
@@ -60,7 +70,8 @@ local function mergeWithHistory(adbDevices)
 	return merged
 end
 
--- ─── 设备列表刷新 ───
+-- ─── 设备列表刷新（仅内容变化时发布，避免每轮询全量触发 panel 重渲染）───
+local lastDevicesJson = nil
 function refreshDevices()
 	adb.listDevicesAsync(function(adbDevices)
 		local merged = mergeWithHistory(adbDevices)
@@ -70,7 +81,11 @@ function refreshDevices()
 			dev.label = models.label(dev.model, customName)
 		end
 		devices = merged
-		noctalia.state.set(state.KEY_DEVICES, devices)
+		local json = noctalia.json.encode(devices)
+		if json ~= lastDevicesJson then
+			lastDevicesJson = json
+			noctalia.state.set(state.KEY_DEVICES, devices)
+		end
 	end)
 end
 
@@ -151,7 +166,7 @@ local function reapRunning()
 		pending[#pending + 1] = device_id
 	end
 	if #pending == 0 then
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 		return
 	end
 	local checked = 0
@@ -162,7 +177,7 @@ local function reapRunning()
 			end
 			checked = checked + 1
 			if checked >= #pending then
-				noctalia.state.set(state.KEY_RUNNING, running)
+				publishRunning()
 			end
 		end)
 	end
@@ -211,7 +226,7 @@ function onIpc(event, payload)
 		local params = persistence.loadParams(p.device_id)
 		scrcpy.start(dev, params)
 		running[p.device_id] = true
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 		if params.record then
 			cleanupRecordings()
 		end
@@ -219,7 +234,7 @@ function onIpc(event, payload)
 	elseif event == "stop" then
 		scrcpy.stop(p.device_id)
 		running[p.device_id] = nil
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 		local dev = findDevice(p.device_id)
 		noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or p.device_id }))
 	elseif event == "restart_with_params" then
@@ -232,7 +247,7 @@ function onIpc(event, payload)
 			scrcpy.start(dev, params)
 			running[p.device_id] = true
 		end
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 	elseif event == "connect" then
 		adb.connectAsync(p.address, function(ok)
 			if ok then
@@ -249,7 +264,7 @@ function onIpc(event, payload)
 	elseif event == "disconnect" then
 		adb.disconnect(p.device_id)
 		running[p.device_id] = nil
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 		local dev = findDevice(p.device_id)
 		noctalia.notify("Phone Operate", noctalia.tr("notify.disconnected", { name = dev and dev.label or p.device_id }))
 		refreshDevices()
@@ -264,7 +279,7 @@ function onIpc(event, payload)
 			noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or device_id }))
 		end
 		running = {}
-		noctalia.state.set(state.KEY_RUNNING, running)
+		publishRunning()
 	elseif event == "usb_mode" then
 		adb.usbMode(p.device_id)
 		refreshDevices()

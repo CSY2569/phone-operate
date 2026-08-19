@@ -146,10 +146,12 @@ local function deviceCard(dev, rows)
 		})
 	end
 
+	-- 重命名：仅选中卡可见；用 opacity 占位（visible 切换会引发布局跳动）
 	local editBtn = ui.button({
 		glyph = "edit", variant = "ghost", controlSize = "sm",
 		tooltip = noctalia.tr("panel.rename"),
-		visible = isSel,
+		opacity = isSel and 1 or 0,
+		enabled = isSel,
 		onClick = function()
 			renameDev = dev.id
 			renameVal = persistence.loadName(dev.id) or ""
@@ -237,7 +239,7 @@ local function paramsPanel()
 			ui.glyph({ name = "adjustments", size = 32, color = "surface_variant" }),
 			ui.label({ text = noctalia.tr("panel.no_device"), color = "surface_variant" }),
 		}))
-		return ui.column({ gap = 12 }, rows)
+		return ui.column({ gap = 12, flexGrow = 1 }, rows)
 	end
 
 	local dev = (function()
@@ -282,7 +284,7 @@ local function paramsPanel()
 		}),
 	}))
 
-	-- 滑块组
+	-- 滑块组：onChange 只做实时预览，onDragEnd 才存参+重启（拖动中不连环重启 scrcpy）
 	local function paramSlider(labelKey, val, min, max, step, suffix, setter)
 		table.insert(rows, ui.row({ gap = 8, align = "center" }, {
 			ui.label({ text = noctalia.tr(labelKey), width = 72, color = "surface_variant" }),
@@ -290,6 +292,10 @@ local function paramsPanel()
 				min = min, max = max, step = step, value = val,
 				onChange = function(v)
 					setter(tonumber(v))
+					render()
+				end,
+				onDragEnd = function(v)
+					if v ~= nil then setter(tonumber(v)) end
 					persistence.saveParams(selectedDevice, params)
 					ipcRestartWithParams()
 					render()
@@ -346,7 +352,7 @@ local function paramsPanel()
 		}),
 	}))
 
-	return ui.column({ gap = 12 }, rows)
+	return ui.column({ gap = 12, flexGrow = 1 }, rows)
 end
 
 -- ─── 左栏：设备列表 ───
@@ -379,8 +385,8 @@ function render()
 	table.insert(rows, headerRow())
 	table.insert(rows, ui.separator({ thickness = 1, spacing = 4 }))
 
-	-- 双栏主体：左设备 / 右参数
-	table.insert(rows, ui.row({ gap = 16, align = "start" }, {
+	-- 双栏主体：左设备 / 右参数（stretch 让两栏与分隔线等高对齐）
+	table.insert(rows, ui.row({ gap = 16, align = "stretch" }, {
 		devicesPanel(),
 		ui.box({ width = 1, fill = "surface_variant/0.5" }),
 		paramsPanel(),
