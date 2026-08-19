@@ -16,12 +16,30 @@ local function panelId()
 	return "icefish/phone-operate:main"
 end
 
+local function adbCoveredByKde(d, devices)
+	if not d or d.source ~= "adb" then return false end
+	for _, other in pairs(devices) do
+		if other.source ~= "adb" and other.adbId and other.adbId == d.adbId then
+			return true
+		end
+	end
+	return false
+end
+
 local function selectedDevice()
 	local devices = noctalia.state.get("pc.devices") or {}
 	local order = noctalia.state.get("pc.order") or {}
 	local sel = noctalia.state.get("pc.selected")
 	local id = sel
-	if not id or not devices[id] then id = order[1] end
+	if not id or not devices[id] or adbCoveredByKde(devices[id], devices) then
+		id = nil
+		for _, oid in ipairs(order) do
+			if not adbCoveredByKde(devices[oid], devices) then
+				id = oid
+				break
+			end
+		end
+	end
 	if id then return devices[id] end
 	return nil
 end
@@ -32,7 +50,8 @@ local function countReachable()
 	local n = 0
 	for _, id in ipairs(order) do
 		local d = devices[id]
-		if d and d.isPaired and d.isReachable == true then n = n + 1 end
+		if d and not adbCoveredByKde(d, devices)
+			and d.isPaired and d.isReachable == true then n = n + 1 end
 	end
 	return n
 end

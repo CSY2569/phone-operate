@@ -37,12 +37,32 @@ local function batteryGlyph(charge, charging)
 	return "battery-off"
 end
 
+-- adb 设备是否已被某个 KDE 设备覆盖（IP 匹配关联了同一 adbId）。
+-- 被覆盖的 adb 设备不再显示，统一由 KDE 设备卡管理。
+local function adbCoveredByKde(d, devices)
+	if not d or d.source ~= "adb" then return false end
+	for _, other in pairs(devices) do
+		if other.source ~= "adb" and other.adbId and other.adbId == d.adbId then
+			return true
+		end
+	end
+	return false
+end
+
 local function selectedDevice()
 	local devices = noctalia.state.get("pc.devices") or {}
 	local order = noctalia.state.get("pc.order") or {}
 	local sel = noctalia.state.get("pc.selected")
 	local id = sel
-	if not id or not devices[id] then id = order[1] end
+	if not id or not devices[id] or adbCoveredByKde(devices[id], devices) then
+		id = nil
+		for _, oid in ipairs(order) do
+			if not adbCoveredByKde(devices[oid], devices) then
+				id = oid
+				break
+			end
+		end
+	end
 	if id then return devices[id] end
 	return nil
 end
