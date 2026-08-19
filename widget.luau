@@ -33,11 +33,14 @@ function onClick()
 end
 
 function onRightClick()
-	-- 未投屏时：用最近设备直接启动 scrcpy
+	-- 未投屏时：用第一台在线 adb 设备直接启动 scrcpy
 	if runningCount == 0 then
 		local devs = noctalia.state.get(state.KEY_DEVICES) or {}
-		if #devs > 0 then
-			ipc.send("start", { device_id = devs[1].id })
+		for _, dev in ipairs(devs) do
+			if dev.source == "adb" and dev.online then
+				ipc.send("start", { device_id = dev.id })
+				return
+			end
 		end
 	end
 end

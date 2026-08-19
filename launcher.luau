@@ -8,8 +8,8 @@ function onQuery(text)
 	local results = {}
 	local lower = string.lower(text or "")
 	for _, dev in ipairs(devs) do
-		-- 简单包含匹配（设备列表通常不长）
-		if text == "" or string.find(string.lower(dev.label), lower, 1, true) then
+		-- 只列 adb 设备（launcher 语义是选中即投屏，KDE 设备不能投屏）
+		if dev.source == "adb" and (text == "" or string.find(string.lower(dev.label), lower, 1, true)) then
 			local status = dev.online and noctalia.tr("panel.status_online") or noctalia.tr("panel.status_offline")
 			table.insert(results, {
 				id = dev.id,

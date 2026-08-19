@@ -1,19 +1,22 @@
 -- service.luau
--- 后台 service：设备轮询 + 自动 connect + scrcpy 进程管理 + 状态发布。
--- 顶层代码在加载时运行一次；update() 周期执行；onIpc 接收 panel/widget/launcher 的请求。
+-- 后台 service：统一管理两来源设备 —— adb/scrcpy（投屏）与 KDE Connect（响铃/ping/媒体/短信）。
+-- 顶层代码加载时运行一次；update() 周期执行；onIpc 接收 panel/widget/launcher 的请求。
 local persistence = require("./lib/persistence.luau")
 local adb = require("./lib/adb.luau")
 local scrcpy = require("./lib/scrcpy.luau")
+local kde = require("./lib/kdeconnect.luau")
 local state = require("./lib/state.luau")
 local models = require("./lib/models.luau")
 local shell = require("./lib/shell.luau")
 
-local devices = {}     -- 当前设备列表（内存模型）
+local devices = {}     -- 统一设备列表（adb + kde），source 区分来源
+local adbDevices = {}  -- adb 来源设备
+local kdeDevices = {}  -- KDE Connect 来源设备
 local running = {}     -- device_id -> true（已启动的 scrcpy 集合，PID 无法获取）
 local lastNetState = nil
 local netCheckCounter = 0
 
--- ─── 工具：运行状态仅变化时发布（避免每轮询触发 widget/panel 重渲染）───
+-- ─── 工具：运行状态仅变化时发布 ───
 local lastRunningJson = nil
 local function publishRunning()
 	local json = noctalia.json.encode(running)
@@ -24,7 +27,6 @@ local function publishRunning()
 end
 
 -- ─── 工具：IPC payload 兼容 string/table ───
--- 参考文档未明确 onIpc payload 是否预解码，此处两者兼容。
 local function decodePayload(p)
 	if type(p) == "string" then
 		local t = noctalia.json.decode(p)
@@ -43,18 +45,23 @@ local function findDevice(id)
 	return nil
 end
 
+-- ─── 工具：去掉 kde 设备 id 的 "kde:" 前缀 ───
+local function kdeRawId(device_id)
+	if type(device_id) == "string" and device_id:sub(1, 4) == "kde:" then
+		return device_id:sub(5)
+	end
+	return device_id
+end
+
 -- ─── 工具：adb 输出与历史记录合并 ───
--- adb 输出 = 在线设备；历史里不在 adb 输出的标 online=false 灰显。
-local function mergeWithHistory(adbDevices)
+local function mergeWithHistory(adbDevicesOut)
 	local merged = {}
 	local seen = {}
-
-	for _, dev in ipairs(adbDevices) do
+	for _, dev in ipairs(adbDevicesOut) do
 		dev.online = true
 		table.insert(merged, dev)
 		seen[dev.id] = true
 	end
-
 	for _, h in ipairs(persistence.loadHistory()) do
 		if not seen[h.id] then
 			table.insert(merged, {
@@ -66,39 +73,123 @@ local function mergeWithHistory(adbDevices)
 			})
 		end
 	end
-
 	return merged
 end
 
--- ─── 设备列表刷新（仅内容变化时发布，避免每轮询全量触发 panel 重渲染）───
+-- ─── 统一设备列表发布（仅变化时，避免每轮询触发 panel 重渲染）───
 local lastDevicesJson = nil
-function refreshDevices()
-	adb.listDevicesAsync(function(adbDevices)
-		local merged = mergeWithHistory(adbDevices)
-		-- 为每台设备生成 label：用户自定义名称 > 原始型号
-		for _, dev in ipairs(merged) do
+local function publishDevices()
+	local merged = {}
+	for _, d in ipairs(adbDevices) do table.insert(merged, d) end
+	for _, d in ipairs(kdeDevices) do table.insert(merged, d) end
+	devices = merged
+	local json = noctalia.json.encode(merged)
+	if json ~= lastDevicesJson then
+		lastDevicesJson = json
+		noctalia.state.set(state.KEY_DEVICES, merged)
+	end
+end
+
+-- ─── adb 设备刷新 ───
+function refreshAdbDevices()
+	adb.listDevicesAsync(function(adbDevicesOut)
+		adbDevices = mergeWithHistory(adbDevicesOut)
+		for _, dev in ipairs(adbDevices) do
+			dev.source = "adb"
 			local customName = persistence.loadName(dev.id)
 			dev.label = models.label(dev.model, customName)
 		end
-		devices = merged
-		local json = noctalia.json.encode(devices)
-		if json ~= lastDevicesJson then
-			lastDevicesJson = json
-			noctalia.state.set(state.KEY_DEVICES, devices)
+		publishDevices()
+	end)
+end
+
+-- ─── KDE Connect 设备刷新 ───
+local function kdeFind(rawId)
+	for _, d in ipairs(kdeDevices) do
+		if d.kdeid == rawId then return d end
+	end
+	return nil
+end
+
+local function fetchKdeExtras(rawId)
+	kde.batteryAsync(rawId, function(b)
+		if b then
+			local rec = kdeFind(rawId)
+			if rec then
+				rec.batteryCharge = b.charge
+				rec.batteryCharging = b.isCharging
+				publishDevices()
+			end
+		end
+	end)
+	kde.mprisAsync(rawId, function(m)
+		if m then
+			local rec = kdeFind(rawId)
+			if rec then
+				rec.media = m
+				publishDevices()
+			end
 		end
 	end)
 end
 
--- ─── 网络检查：WiFi/以太网是否拿到 IP ───
+function refreshKdeDevices()
+	kde.isAvailable(function(avail)
+		if not avail then
+			if #kdeDevices > 0 then kdeDevices = {}; publishDevices() end
+			return
+		end
+		kde.listDevicesAsync(function(ids)
+			if #ids == 0 then
+				if #kdeDevices > 0 then kdeDevices = {}; publishDevices() end
+				return
+			end
+			local list = {}
+			local done = 0
+			for _, rawId in ipairs(ids) do
+				kde.deviceInfoAsync(rawId, function(info)
+					local rec = {
+						id = "kde:" .. rawId,
+						kdeid = rawId,
+						source = "kde",
+						label = (info and info.name) or rawId,
+						model = (info and info.name) or rawId,
+						transport = "kde",
+						isPaired = (info and info.isPaired) or false,
+						isReachable = (info and info.isReachable) or false,
+						online = (info and info.isReachable and info.isPaired) or false,
+					}
+					list[#list + 1] = rec
+					done = done + 1
+					if done >= #ids then
+						table.sort(list, function(a, b) return a.kdeid < b.kdeid end)
+						kdeDevices = list
+						publishDevices()
+						for _, d in ipairs(list) do
+							if d.online then fetchKdeExtras(d.kdeid) end
+						end
+					end
+				end)
+			end
+		end)
+	end)
+end
+
+-- ─── 合并刷新入口（对外统一）───
+function refreshDevices()
+	refreshAdbDevices()
+	refreshKdeDevices()
+end
+
+-- ─── 网络检查 ───
 local function checkNetworkAsync(cb)
-	-- 字符串形式走 /bin/sh -c，管道生效；无需 sh -c 包裹
 	noctalia.runAsync("ip -4 addr show | grep -q 'inet ' && echo ok || echo no", function(result)
 		local ok = result.exitCode == 0 and result.stdout:match("ok") ~= nil
 		cb(ok)
 	end)
 end
 
--- ─── 延迟重试 connect：最多 3 次，间隔 5s / 10s / 20s ───
+-- ─── 延迟重试 connect ───
 local function retryConnect(device_id, label, attempt)
 	attempt = attempt or 1
 	if attempt > 3 then
@@ -118,7 +209,6 @@ local function retryConnect(device_id, label, attempt)
 	end)
 end
 
--- ─── 自动 connect 入口 ───
 local function autoConnect(entry)
 	if entry.transport ~= "wifi" then return end
 	adb.connectAsync(entry.id, function(ok)
@@ -130,7 +220,6 @@ local function autoConnect(entry)
 	end)
 end
 
--- ─── 网络监听：状态从断开 -> 就绪时重新触发自动 connect ───
 local function monitorNetwork()
 	checkNetworkAsync(function(ok)
 		if lastNetState == false and ok then
@@ -144,11 +233,10 @@ local function monitorNetwork()
 	end)
 end
 
--- ─── 录屏文件清理：超过最大保留数则删最旧的 ───
+-- ─── 录屏文件清理 ───
 function cleanupRecordings()
 	local maxFiles = noctalia.getConfig("record_max_files") or 10
 	local dir = noctalia.pluginDataDir()
-	-- 字符串形式走 /bin/sh -c，管道生效；dir 经 shell.quote 转义防路径含空格
 	noctalia.runAsync(string.format(
 		"ls -1t %s/rec_*.mp4 2>/dev/null | tail -n +%d | xargs -r rm -f",
 		shell.quote(dir), maxFiles + 1
@@ -159,7 +247,7 @@ function cleanupRecordings()
 	end)
 end
 
--- ─── 清理 running 表中已退出的 scrcpy 记录（pgrep 校验）───
+-- ─── 清理 running 表中已退出的 scrcpy 记录 ───
 local function reapRunning()
 	local pending = {}
 	for device_id, _ in pairs(running) do
@@ -172,18 +260,14 @@ local function reapRunning()
 	local checked = 0
 	for _, device_id in ipairs(pending) do
 		scrcpy.isRunning(device_id, function(alive)
-			if not alive then
-				running[device_id] = nil
-			end
+			if not alive then running[device_id] = nil end
 			checked = checked + 1
-			if checked >= #pending then
-				publishRunning()
-			end
+			if checked >= #pending then publishRunning() end
 		end)
 	end
 end
 
--- ─── 启动时：加载历史 + 自动 connect（带网络监听）───
+-- ─── 启动：加载历史 + 自动 connect ───
 local history = persistence.loadHistory()
 
 checkNetworkAsync(function(netOk)
@@ -199,10 +283,9 @@ end)
 noctalia.setUpdateInterval(noctalia.getConfig("poll_interval_ms") or 3000)
 refreshDevices()
 
--- ─── 周期更新：轮询 adb devices + 网络监听 + 僵尸进程清理 ───
+-- ─── 周期更新 ───
 function update()
 	refreshDevices()
-	-- 每 5 个轮询周期检查一次网络状态（约 15s，取决于 poll_interval_ms）
 	netCheckCounter = netCheckCounter + 1
 	if netCheckCounter >= 5 then
 		monitorNetwork()
@@ -211,12 +294,11 @@ function update()
 	reapRunning()
 end
 
--- 用户改设置时：不重启 service，只更新轮询间隔
 function onConfigChanged()
 	noctalia.setUpdateInterval(noctalia.getConfig("poll_interval_ms") or 3000)
 end
 
--- ─── IPC 接口（panel/widget/launcher 通过 noctalia msg plugin ... 调用）───
+-- ─── IPC 接口 ───
 function onIpc(event, payload)
 	local p = decodePayload(payload)
 
@@ -238,11 +320,8 @@ function onIpc(event, payload)
 		local dev = findDevice(p.device_id)
 		noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or p.device_id }))
 	elseif event == "restart_with_params" then
-		-- 仅当该设备当前正在投屏时才重启（stop+start）；否则只存参数，不自动开投屏
 		local wasRunning = running[p.device_id] ~= nil
-		if wasRunning then
-			scrcpy.stop(p.device_id)
-		end
+		if wasRunning then scrcpy.stop(p.device_id) end
 		local params = p.params or persistence.loadParams(p.device_id)
 		persistence.saveParams(p.device_id, params)
 		local dev = findDevice(p.device_id)
@@ -272,10 +351,8 @@ function onIpc(event, payload)
 		noctalia.notify("Phone Operate", noctalia.tr("notify.disconnected", { name = dev and dev.label or p.device_id }))
 		refreshDevices()
 	elseif event == "refresh" then
-		-- 手动刷新设备列表（panel 头部「刷新」按钮）
 		refreshDevices()
 	elseif event == "stop_all" then
-		-- 全部停止投屏（panel 头部「全部停止」按钮）
 		for device_id, _ in pairs(running) do
 			scrcpy.stop(device_id)
 			local dev = findDevice(device_id)
@@ -289,10 +366,45 @@ function onIpc(event, payload)
 	elseif event == "rename" then
 		persistence.saveName(p.device_id, p.name)
 		refreshDevices()
+	-- ── KDE Connect 操作 ──
+	elseif event == "ring" then
+		kde.ring(kdeRawId(p.device_id))
+	elseif event == "ping" then
+		kde.ping(kdeRawId(p.device_id), p.message)
+	elseif event == "clipboard" then
+		kde.sendClipboard(kdeRawId(p.device_id))
+	elseif event == "browse" then
+		kde.browse(kdeRawId(p.device_id), function(ok, err)
+			if not ok then
+				noctalia.notifyError("Phone Operate", err or noctalia.tr("notify.browse_failed"))
+			end
+		end)
+	elseif event == "sms_send" then
+		kde.sendSms(kdeRawId(p.device_id), p.destination, p.text, function(res)
+			if res and res.exitCode == 0 then
+				noctalia.notify("Phone Operate", noctalia.tr("notify.sms_sent", { dest = p.destination or "" }))
+			end
+		end)
+	elseif event == "kde_pair" then
+		kde.pair(kdeRawId(p.device_id), function() refreshKdeDevices() end)
+	elseif event == "kde_unpair" then
+		kde.unpair(kdeRawId(p.device_id), function() refreshKdeDevices() end)
+	elseif event == "media" then
+		kde.mediaAction(kdeRawId(p.device_id), p.action, function()
+			noctalia.runAsync("sleep 0.6", function() refreshKdeDevices() end)
+		end)
+	elseif event == "media_seek" then
+		kde.mediaSeek(kdeRawId(p.device_id), tonumber(p.offset) or 0, function()
+			noctalia.runAsync("sleep 0.3", function() refreshKdeDevices() end)
+		end)
+	elseif event == "media_set_volume" then
+		kde.mediaSetVolume(kdeRawId(p.device_id), tonumber(p.volume) or 0, function()
+			refreshKdeDevices()
+		end)
 	end
 end
 
--- 插件禁用/卸载/重载时：不杀 scrcpy（用户的投屏不应被打断）
+-- 插件禁用/卸载/重载时：不杀 scrcpy
 function onExit(_signal, reason)
 	if reason == "uninstall" then
 		noctalia.notify("Phone Operate", noctalia.tr("notify.uninstalled"))

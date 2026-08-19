@@ -1,8 +1,9 @@
 -- panel.luau
--- 主力配置窗（双栏：左设备列表、右选中设备参数，见 UI 设计方案 B）。
--- 头部（标题+副标题+统计+刷新/全部停止）→ 双栏主体 → 底部配对 footer。
--- 颜色全部用 Noctalia 主题角色 token，由主题解析、可被主题更改；冲突以 Noctalia 为准。
--- 后端 IPC：新增 refresh / stop_all，其余事件不变。
+-- 主力配置窗。统一设备列表（adb/scrcpy + KDE Connect），主区：
+--   左 = 媒体控件 + 短信发送（KDE Connect 设备）
+--   右 = 操作按钮（adb：投屏/停止/断开/回USB/参数；kde：响铃/ping/浏览/剪贴板/配对）
+--   投屏参数收进可展开区（仅 adb 设备）
+-- 颜色全部 Noctalia 主题角色 token；后端 IPC 事件不变 + 新增 kde 事件。
 local state = require("./lib/state.luau")
 local persistence = require("./lib/persistence.luau")
 local ipcMod = require("./lib/ipc.luau")
@@ -10,15 +11,16 @@ local ipcMod = require("./lib/ipc.luau")
 local devices = {}
 local selectedDevice = nil
 local params = {}
-local renameDev = nil
-local renameVal = ""
+local running = {}
 local pairAddr = ""
 local pairCode = ""
 local pairExpanded = false
-local running = {}
-local activePreset = nil   -- 当前选中的档位：hd / perf / save / custom（nil=未选）
+local paramsExpanded = false
+local activePreset = nil
+local smsDrafts = {}   -- [deviceId] = { dest, msg }
+local seekDrag = {}    -- [deviceId] = 拖动中的预览位置
+local volDrag = {}     -- [deviceId] = 拖动中的预览音量
 
--- ─── 参数预设（高清/性能/省电）───
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
 	perf = { max_size = 1280, bit_rate = 8,  max_fps = 60 },
@@ -48,6 +50,18 @@ local function countOnline()
 	return n
 end
 
+local function findSelected()
+	for _, d in ipairs(devices) do
+		if d.id == selectedDevice then return d end
+	end
+	return nil
+end
+
+local function fmtTime(ms)
+	local total = math.floor((ms or 0) / 1000)
+	return string.format("%d:%02d", math.floor(total / 60), total % 60)
+end
+
 noctalia.state.watch(state.KEY_DEVICES, function(d)
 	devices = d or {}
 	if (not selectedDevice) and #devices > 0 then
@@ -72,182 +86,246 @@ function onOpen()
 	render()
 end
 
--- ─── 状态药丸（底色/文字色/文案）───
-local function statusPillOf(dev)
-	if running[dev.id] then
-		return "primary/0.16", "primary", noctalia.tr("panel.status_mirroring")
-	elseif dev.online then
-		return "primary/0.10", "primary", noctalia.tr("panel.status_online")
-	else
-		return "surface_variant/0.2", "surface_variant", noctalia.tr("panel.status_offline")
-	end
-end
-
 local function sectionLabel(rows, text)
 	table.insert(rows, ui.label({
 		text = text, fontSize = 11, fontWeight = "bold", color = "surface_variant",
 	}))
 end
 
--- ─── 设备卡片（左栏）───
-local function deviceCard(dev, rows)
-	local isSel = (dev.id == selectedDevice)
-	local isRenaming = (renameDev == dev.id)
-	local isRunning = running[dev.id] ~= nil
-	local pillFill, pillColor, statusText = statusPillOf(dev)
-
-	if isRenaming then
-		table.insert(rows, ui.row({
-			key = "dev-" .. dev.id,
-			fill = "primary/0.08", radius = 10, padding = 10, gap = 8, align = "center",
-			border = "primary", borderWidth = 1,
-		}, {
-			ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16 }),
-			ui.input({
-				key = "rename-input-" .. dev.id,
-				value = renameVal,
-				placeholder = noctalia.tr("panel.rename_placeholder"),
-				onChange = "onRenameInput",
-				onSubmit = "onRenameSubmit",
-				flexGrow = 1,
-			}),
-			ui.button({
-				glyph = "check", variant = "primary", controlSize = "sm",
-				tooltip = noctalia.tr("panel.confirm"),
-				onClick = "onRenameSubmit",
-			}),
-			ui.button({
-				glyph = "x", variant = "ghost", controlSize = "sm",
-				tooltip = noctalia.tr("panel.cancel"),
-				onClick = function()
-					renameDev = nil; renameVal = ""; render()
-				end,
-			}),
-		}))
-		return
-	end
-
-	local actionBtn
-	if isRunning then
-		actionBtn = ui.button({
-			text = noctalia.tr("panel.stop"), variant = "destructive", glyph = "player-stop",
-			controlSize = "sm",
-			onClick = function() ipc("stop", { device_id = dev.id }) end,
-		})
-	elseif dev.online then
-		actionBtn = ui.button({
-			text = noctalia.tr("panel.cast"), variant = "primary", glyph = "player-play",
-			controlSize = "sm",
-			onClick = function() ipc("start", { device_id = dev.id }) end,
-		})
-	else
-		actionBtn = ui.button({
-			text = noctalia.tr("panel.cast"), variant = "ghost", glyph = "player-play",
-			controlSize = "sm", enabled = false,
-		})
-	end
-
-	-- 重命名：仅选中卡可见；用 opacity 占位（visible 切换会引发布局跳动）
-	local editBtn = ui.button({
-		glyph = "edit", variant = "ghost", controlSize = "sm",
-		tooltip = noctalia.tr("panel.rename"),
-		opacity = isSel and 1 or 0,
-		enabled = isSel,
-		onClick = function()
-			renameDev = dev.id
-			renameVal = persistence.loadName(dev.id) or ""
-			render()
-		end,
-	})
-
-	table.insert(rows, ui.row({
-		key = "dev-" .. dev.id,
-		fill = isSel and "primary/0.08" or "surface",
-		radius = 12, padding = 10, gap = 8, align = "center",
-		border = isSel and "primary" or "surface_variant/0.5",
-		borderWidth = 1,
-		onClick = function()
-			selectedDevice = dev.id
-			params = persistence.loadParams(dev.id)
-			render()
-		end,
-	}, {
-		ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
-		-- 只显示设备名；transport·id 与右栏参数头重复且对用户无用，已移除
-		ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface", flexGrow = 1 }),
-		ui.row({ fill = pillFill, radius = 8, paddingH = 8, paddingV = 3 }, {
-			ui.label({ text = statusText, fontSize = 11, color = pillColor }),
-		}),
-		actionBtn,
-		editBtn,
-	}))
-end
-
--- ─── 头部（标题 + 副标题 | 统计 + 刷新 + 全部停止）───
+-- ─── 头部 ───
 local function headerRow()
 	return ui.row({ gap = 10, align = "center" }, {
 		ui.column({ gap = 2 }, {
 			ui.label({ text = noctalia.tr("panel.title"), fontWeight = "bold" }),
-			ui.label({
-				text = noctalia.tr("panel.subtitle"),
-				fontSize = 11, color = "surface_variant",
-			}),
+			ui.label({ text = noctalia.tr("panel.subtitle"), fontSize = 11, color = "surface_variant" }),
 		}),
 		ui.spacer({ flexGrow = 1 }),
-		-- 在线统计
 		ui.row({ gap = 4, align = "center" }, {
 			ui.box({ width = 8, height = 8, radius = 4, fill = "primary" }),
-			ui.label({
-				text = tostring(countOnline()) .. " " .. noctalia.tr("panel.status_online"),
-				fontSize = 12, color = "on_surface",
-			}),
+			ui.label({ text = tostring(countOnline()), fontSize = 12, color = "on_surface" }),
 		}),
-		-- 投屏中统计
 		ui.row({ gap = 4, align = "center" }, {
 			ui.glyph({ name = "device-tv", size = 14, color = "primary" }),
-			ui.label({
-				text = tostring(countRunning()) .. " " .. noctalia.tr("panel.status_mirroring"),
-				fontSize = 12, color = "on_surface",
-			}),
+			ui.label({ text = tostring(countRunning()), fontSize = 12, color = "on_surface" }),
 		}),
-		ui.button({
-			glyph = "rotate", variant = "ghost", controlSize = "sm",
+		ui.button({ glyph = "rotate", variant = "ghost", controlSize = "sm",
 			tooltip = noctalia.tr("panel.refresh"),
-			onClick = function() ipc("refresh", {}) end,
-		}),
-		ui.button({
-			glyph = "player-stop", variant = "ghost", controlSize = "sm",
+			onClick = function() ipc("refresh", {}) end }),
+		ui.button({ glyph = "player-stop", variant = "ghost", controlSize = "sm",
 			tooltip = noctalia.tr("panel.stop_all"),
-			onClick = function() ipc("stop_all", {}) end,
-		}),
+			onClick = function() ipc("stop_all", {}) end }),
 	})
 end
 
--- ─── 参数面板（右栏）───
-local function paramsPanel()
-	local rows = {}
-
-	if not selectedDevice then
-		table.insert(rows, ui.column({ gap = 10, align = "center", padding = 20 }, {
-			ui.glyph({ name = "adjustments", size = 32, color = "surface_variant" }),
-			ui.label({ text = noctalia.tr("panel.no_device"), color = "surface_variant" }),
+-- ─── 设备切换器（紧凑按钮） ───
+local function deviceSwitcher()
+	local buttons = {}
+	for _, dev in ipairs(devices) do
+		local glyph = "device-mobile"
+		if dev.source == "adb" then
+			glyph = (dev.transport == "wifi") and "wifi" or "usb"
+		end
+		table.insert(buttons, ui.button({
+			key = "sw-" .. dev.id,
+			text = dev.label,
+			glyph = glyph,
+			variant = (selectedDevice == dev.id) and "primary" or "ghost",
+			controlSize = "sm",
+			onClick = function()
+				selectedDevice = dev.id
+				params = persistence.loadParams(dev.id)
+				render()
+			end,
+			flexGrow = 1,
 		}))
-		return ui.column({ gap = 8, flexGrow = 1 }, rows)
+	end
+	if #buttons == 0 then return nil end
+	return ui.row({ gap = 6 }, buttons)
+end
+
+-- ─── 媒体区（KDE） ───
+local function mediaSection(dev, rows)
+	sectionLabel(rows, noctalia.tr("media.now_playing"))
+	local m = dev.media
+	if not m or not m.title then
+		table.insert(rows, ui.label({
+			text = noctalia.tr("media.no_media"), fontSize = 11, color = "surface_variant",
+		}))
+		return
 	end
 
-	-- 区段标题：右栏本就对应选中的设备，设备名与左栏重复且对用户无用，只保留「参数」+ 提示
 	table.insert(rows, ui.column({ gap = 2 }, {
-		ui.label({
-			text = noctalia.tr("panel.section.params"),
-			fontWeight = "bold",
-		}),
-		ui.label({
-			text = noctalia.tr("panel.params_hint"),
-			fontSize = 11, color = "surface_variant",
-		}),
+		ui.label({ text = m.title or "", fontWeight = "bold", color = "on_surface" }),
+		ui.label({ text = m.artist or "", fontSize = 11, color = "surface_variant" }),
 	}))
 
-	-- 预设快捷：key 为 hd/perf/save，选中后高亮该档位
+	table.insert(rows, ui.row({ gap = 6 }, {
+		ui.button({ glyph = "player-skip-back", variant = "ghost", controlSize = "sm",
+			tooltip = noctalia.tr("media.prev"),
+			onClick = function() ipc("media", { device_id = dev.id, action = "Previous" }) end }),
+		ui.button({ glyph = m.isPlaying and "player-pause" or "player-play",
+			variant = "primary", controlSize = "sm",
+			tooltip = noctalia.tr(m.isPlaying and "media.pause" or "media.play"),
+			onClick = function() ipc("media", { device_id = dev.id, action = "PlayPause" }) end }),
+		ui.button({ glyph = "player-skip-forward", variant = "ghost", controlSize = "sm",
+			tooltip = noctalia.tr("media.next"),
+			onClick = function() ipc("media", { device_id = dev.id, action = "Next" }) end }),
+		ui.button({ glyph = "player-stop", variant = "ghost", controlSize = "sm",
+			tooltip = noctalia.tr("media.stop"),
+			onClick = function() ipc("media", { device_id = dev.id, action = "Stop" }) end }),
+	}))
+
+	if m.canSeek and (m.length or 0) > 0 then
+		local pos = seekDrag[dev.id] or m.position or 0
+		table.insert(rows, ui.row({ key = "seek-row-" .. dev.id, gap = 8, align = "center" }, {
+			ui.label({ text = fmtTime(pos), fontSize = 11, color = "surface_variant", width = 38 }),
+			ui.slider({
+				key = "seek-" .. dev.id,
+				min = 0, max = m.length or 1, step = 1000, value = pos,
+				onChange = function(v) seekDrag[dev.id] = tonumber(v); render() end,
+				onDragEnd = function()
+					local off = seekDrag[dev.id] or 0
+					seekDrag[dev.id] = nil
+					ipc("media_seek", { device_id = dev.id, offset = off })
+					render()
+				end,
+				flexGrow = 1,
+			}),
+			ui.label({ text = fmtTime(m.length), fontSize = 11, color = "surface_variant", width = 38 }),
+		}))
+	end
+
+	if m.volume and m.volume >= 0 then
+		local vol = volDrag[dev.id] or m.volume
+		table.insert(rows, ui.row({ key = "vol-row-" .. dev.id, gap = 8, align = "center" }, {
+			ui.glyph({ name = "volume", size = 14, color = "surface_variant" }),
+			ui.slider({
+				key = "vol-" .. dev.id,
+				min = 0, max = 100, step = 1, value = vol,
+				onChange = function(v) volDrag[dev.id] = tonumber(v); render() end,
+				onDragEnd = function()
+					local vv = volDrag[dev.id] or 0
+					volDrag[dev.id] = nil
+					ipc("media_set_volume", { device_id = dev.id, volume = vv })
+					render()
+				end,
+				flexGrow = 1,
+			}),
+			ui.label({ text = tostring(vol) .. "%", fontSize = 11, color = "surface_variant", width = 38 }),
+		}))
+	end
+end
+
+-- ─── 短信区（KDE） ───
+local function smsSection(dev, rows)
+	sectionLabel(rows, noctalia.tr("panel.section.sms"))
+	local draft = smsDrafts[dev.id]
+	if not draft then draft = { dest = "", msg = "" }; smsDrafts[dev.id] = draft end
+
+	table.insert(rows, ui.input({
+		key = "sms-dest-" .. dev.id,
+		value = draft.dest,
+		placeholder = noctalia.tr("sms.dest"),
+		onChange = function(v) draft.dest = v end,
+		flexGrow = 1,
+	}))
+	table.insert(rows, ui.input({
+		key = "sms-msg-" .. dev.id,
+		value = draft.msg,
+		placeholder = noctalia.tr("sms.msg"),
+		onChange = function(v) draft.msg = v end,
+		multiline = true,
+		flexGrow = 1,
+	}))
+	table.insert(rows, ui.button({
+		text = noctalia.tr("sms.send"), variant = "primary", glyph = "send",
+		onClick = function()
+			if draft.dest ~= "" and draft.msg ~= "" then
+				ipc("sms_send", { device_id = dev.id, destination = draft.dest, text = draft.msg })
+				draft.msg = ""
+				render()
+			end
+		end,
+		flexGrow = 1,
+	}))
+end
+
+-- ─── 左栏：媒体 + 短信（或提示） ───
+local function leftColumn(dev)
+	local rows = {}
+	if dev.source == "kde" then
+		if dev.online then
+			mediaSection(dev, rows)
+			table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
+			smsSection(dev, rows)
+		else
+			table.insert(rows, ui.label({
+				text = noctalia.tr("panel.status_offline"), fontSize = 11, color = "surface_variant",
+			}))
+		end
+	else
+		-- adb 设备：无媒体/短信，提示投屏
+		table.insert(rows, ui.label({
+			text = noctalia.tr("panel.adb_hint"), fontSize = 11, color = "surface_variant",
+		}))
+	end
+	return ui.column({ gap = 8, flexGrow = 1 }, rows)
+end
+
+-- ─── 右栏操作按钮 ───
+local function actionsColumn(dev)
+	local rows = {}
+	sectionLabel(rows, noctalia.tr("panel.section.actions"))
+	if dev.source == "adb" then
+		local isRunning = running[dev.id] ~= nil
+		table.insert(rows, isRunning and ui.button({
+			text = noctalia.tr("action.stop"), variant = "destructive", glyph = "player-stop",
+			onClick = function() ipc("stop", { device_id = dev.id }) end, flexGrow = 1,
+		}) or ui.button({
+			text = noctalia.tr("action.cast"), variant = "primary", glyph = "player-play",
+			onClick = function() ipc("start", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.disconnect"), variant = "ghost", glyph = "plug-off",
+			onClick = function() ipc("disconnect", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("panel.section.params"), variant = paramsExpanded and "primary" or "ghost",
+			glyph = "adjustments",
+			onClick = function() paramsExpanded = not paramsExpanded; render() end, flexGrow = 1,
+		}))
+	else
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.ring"), variant = "primary", glyph = "bell-ringing",
+			onClick = function() ipc("ring", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.ping"), variant = "ghost", glyph = "message",
+			onClick = function() ipc("ping", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.browse"), variant = "ghost", glyph = "folder",
+			onClick = function() ipc("browse", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.clipboard"), variant = "ghost", glyph = "clipboard",
+			onClick = function() ipc("clipboard", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, dev.isPaired and ui.button({
+			text = noctalia.tr("action.unpair"), variant = "ghost", glyph = "link-off",
+			onClick = function() ipc("kde_unpair", { device_id = dev.id }) end, flexGrow = 1,
+		}) or ui.button({
+			text = noctalia.tr("action.pair"), variant = "ghost", glyph = "link",
+			onClick = function() ipc("kde_pair", { device_id = dev.id }) end, flexGrow = 1,
+		}))
+	end
+	return ui.column({ gap = 8, width = 140 }, rows)
+end
+
+-- ─── 投屏参数区（adb，可展开） ───
+local function paramsContent()
+	local rows = {}
+
 	local function applyPreset(key, p)
 		activePreset = key
 		for k, v in pairs(p) do params[k] = v end
@@ -255,25 +333,15 @@ local function paramsPanel()
 		ipcRestartWithParams()
 		render()
 	end
+
 	table.insert(rows, ui.row({ gap = 8 }, {
-		ui.button({
-			text = noctalia.tr("panel.preset_hd"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "hd",
-			onClick = function() applyPreset("hd", PRESETS.hd) end, flexGrow = 1,
-		}),
-		ui.button({
-			text = noctalia.tr("panel.preset_perf"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "perf",
-			onClick = function() applyPreset("perf", PRESETS.perf) end, flexGrow = 1,
-		}),
-		ui.button({
-			text = noctalia.tr("panel.preset_save"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "save",
-			onClick = function() applyPreset("save", PRESETS.save) end, flexGrow = 1,
-		}),
-		-- 自定义：恢复用户手动调整过的参数档（预设不覆盖它）
-		ui.button({
-			text = noctalia.tr("panel.preset_custom"), variant = "ghost", controlSize = "sm",
+		ui.button({ text = noctalia.tr("panel.preset_hd"), variant = "ghost", controlSize = "sm",
+			selected = activePreset == "hd", onClick = function() applyPreset("hd", PRESETS.hd) end, flexGrow = 1 }),
+		ui.button({ text = noctalia.tr("panel.preset_perf"), variant = "ghost", controlSize = "sm",
+			selected = activePreset == "perf", onClick = function() applyPreset("perf", PRESETS.perf) end, flexGrow = 1 }),
+		ui.button({ text = noctalia.tr("panel.preset_save"), variant = "ghost", controlSize = "sm",
+			selected = activePreset == "save", onClick = function() applyPreset("save", PRESETS.save) end, flexGrow = 1 }),
+		ui.button({ text = noctalia.tr("panel.preset_custom"), variant = "ghost", controlSize = "sm",
 			selected = activePreset == "custom",
 			onClick = function()
 				activePreset = "custom"
@@ -282,16 +350,11 @@ local function paramsPanel()
 					for k, v in pairs(c) do params[k] = v end
 					persistence.saveParams(selectedDevice, params)
 					ipcRestartWithParams()
-					render()
-				else
-					render()
 				end
-			end, flexGrow = 1,
-		}),
+				render()
+			end, flexGrow = 1 }),
 	}))
 
-	-- 滑块组：onChange 实时预览（带稳定 key，重渲染不重建原生滑块，避免拖动脱节），
-	-- onDragEnd 才存参+存自定义档+重启（拖动中不连环重启 scrcpy）
 	local function paramSlider(labelKey, val, min, max, step, suffix, setter)
 		table.insert(rows, ui.row({ key = "row-" .. labelKey, gap = 8, align = "center" }, {
 			ui.label({ text = noctalia.tr(labelKey), width = 72, color = "surface_variant" }),
@@ -300,12 +363,10 @@ local function paramsPanel()
 				min = min, max = max, step = step, value = val,
 				onChange = function(v)
 					setter(tonumber(v))
-					activePreset = "custom" -- 手动调整即偏离预设，切回自定义档位高亮
+					activePreset = "custom"
 					render()
 				end,
-				onDragEnd = function(_v)
-					-- onChange 已实时维护 params；onDragEnd 不再回写值（其回调值可能是拖动起始值，
-					-- 会覆盖用户拖动后的新值），只做提交：存参+存自定义档+（投屏中则）重启
+				onDragEnd = function()
 					persistence.saveParams(selectedDevice, params)
 					persistence.saveCustom(selectedDevice, params)
 					ipcRestartWithParams()
@@ -317,14 +378,10 @@ local function paramsPanel()
 		}))
 	end
 
-	paramSlider("panel.max_size", params.max_size or 1920,
-		256, 3840, 64, "", function(v) params.max_size = v end)
-	paramSlider("panel.bit_rate", params.bit_rate or 8,
-		1, 30, 1, "M", function(v) params.bit_rate = v end)
-	paramSlider("panel.max_fps", params.max_fps or 60,
-		1, 240, 1, "", function(v) params.max_fps = v end)
+	paramSlider("panel.max_size", params.max_size or 1920, 256, 3840, 64, "", function(v) params.max_size = v end)
+	paramSlider("panel.bit_rate", params.bit_rate or 8, 1, 30, 1, "M", function(v) params.bit_rate = v end)
+	paramSlider("panel.max_fps", params.max_fps or 60, 1, 240, 1, "", function(v) params.max_fps = v end)
 
-	-- 开关组（名称 + 小字说明 + toggle）
 	local function toggleBlock(labelKey, descKey, checked, setter)
 		table.insert(rows, ui.column({ gap = 2 }, {
 			ui.row({ gap = 8, align = "center" }, {
@@ -333,7 +390,7 @@ local function paramsPanel()
 					checked = checked,
 					onChange = function(v)
 						setter(v == "true")
-						activePreset = "custom" -- 手动调整即偏离预设，切回自定义档位高亮
+						activePreset = "custom"
 						persistence.saveParams(selectedDevice, params)
 						persistence.saveCustom(selectedDevice, params)
 						ipcRestartWithParams()
@@ -341,10 +398,7 @@ local function paramsPanel()
 					end,
 				}),
 			}),
-			ui.label({
-				text = noctalia.tr(descKey),
-				fontSize = 11, color = "surface_variant",
-			}),
+			ui.label({ text = noctalia.tr(descKey), fontSize = 11, color = "surface_variant" }),
 		}))
 	end
 
@@ -353,29 +407,22 @@ local function paramsPanel()
 	toggleBlock("panel.record", "panel.record_desc",
 		params.record or false, function(v) params.record = v end)
 
-	-- 断开 / 回 USB
 	table.insert(rows, ui.row({ gap = 8 }, {
-		ui.button({
-			text = noctalia.tr("panel.disconnect"), variant = "ghost", glyph = "plug-off",
-			onClick = "onDisconnect", flexGrow = 1,
-		}),
-		ui.button({
-			text = noctalia.tr("panel.usb_mode"), variant = "ghost", glyph = "usb",
-			onClick = "onUsbMode", flexGrow = 1,
-		}),
+		ui.button({ text = noctalia.tr("action.usb"), variant = "ghost", glyph = "usb",
+			onClick = function() ipc("usb_mode", { device_id = selectedDevice }) end, flexGrow = 1 }),
 	}))
-
-	return ui.column({ gap = 8, flexGrow = 1 }, rows)
+	return ui.column({ gap = 8 }, rows)
 end
 
--- ─── 左栏：设备列表 ───
-local function devicesPanel()
+-- ─── 主渲染 ───
+function render()
 	local rows = {}
-	sectionLabel(rows, noctalia.tr("panel.section.devices"))
+
+	table.insert(rows, headerRow())
+	table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
 
 	if #devices == 0 then
-		-- 空状态
-		table.insert(rows, ui.column({ gap = 10, align = "center", padding = 16 }, {
+		table.insert(rows, ui.column({ gap = 10, align = "center", padding = 20 }, {
 			ui.glyph({ name = "device-mobile", size = 40, color = "surface_variant" }),
 			ui.label({ text = noctalia.tr("panel.empty_title"), color = "surface_variant" }),
 			ui.button({
@@ -384,32 +431,29 @@ local function devicesPanel()
 			}),
 		}))
 	else
-		for _, dev in ipairs(devices) do
-			deviceCard(dev, rows)
+		local sw = deviceSwitcher()
+		if sw then table.insert(rows, sw) end
+		table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
+
+		local sel = findSelected()
+		if sel then
+			table.insert(rows, ui.row({ gap = 12, align = "stretch" }, {
+				leftColumn(sel),
+				ui.box({ width = 1, fill = "surface_variant/0.5" }),
+				actionsColumn(sel),
+			}))
+			if sel.source == "adb" and paramsExpanded then
+				table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
+				table.insert(rows, paramsContent())
+			end
 		end
 	end
 
-	return ui.column({ gap = 8, flexGrow = 1 }, rows)
-end
-
-function render()
-	local rows = {}
-
-	table.insert(rows, headerRow())
-	table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
-
-	-- 双栏主体：左设备 / 右参数（stretch 让两栏与分隔线等高对齐）
-	table.insert(rows, ui.row({ gap = 12, align = "stretch" }, {
-		devicesPanel(),
-		ui.box({ width = 1, fill = "surface_variant/0.5" }),
-		paramsPanel(),
-	}))
-
-	-- footer：配对（渐进披露）
+	-- adb 无线配对 footer
 	table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
 	if not pairExpanded then
 		table.insert(rows, ui.button({
-			text = noctalia.tr("panel.pair_add"), variant = "primary", glyph = "wifi",
+			text = noctalia.tr("panel.pair_add"), variant = "ghost", glyph = "wifi",
 			onClick = function() pairExpanded = true; render() end, flexGrow = 1,
 		}))
 	else
@@ -448,16 +492,6 @@ function render()
 end
 
 -- ─── 回调 ───
-function onDisconnect()
-	if not selectedDevice then return end
-	ipc("disconnect", { device_id = selectedDevice })
-end
-
-function onUsbMode()
-	if not selectedDevice then return end
-	ipc("usb_mode", { device_id = selectedDevice })
-end
-
 function onPair()
 	if pairAddr and pairAddr ~= "" and pairCode and pairCode ~= "" then
 		ipc("pair", { address = pairAddr, code = pairCode })
@@ -470,13 +504,3 @@ end
 function onPairSubmit() onPair() end
 function onPairAddr(v) pairAddr = v end
 function onPairCode(v) pairCode = v end
-
-function onRenameSubmit()
-	if renameDev then
-		ipc("rename", { device_id = renameDev, name = renameVal })
-		renameDev = nil
-		renameVal = ""
-	end
-end
-
-function onRenameInput(v) renameVal = v end

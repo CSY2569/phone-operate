@@ -7,3 +7,6 @@
 
 # 参考文档（上游资料，不入库）
 /参考文档/
+
+# phone-connect 独立插件副本（自带 .git，不入本仓库）
+/phone-connect/

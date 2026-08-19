@@ -6,7 +6,7 @@ author = "icefish"
 license = "MIT"
 description = "Control your Android phone via scrcpy — launch, configure, multi-device."
 tags = ["scrcpy", "android", "phone", "control"]
-dependencies = ["scrcpy", "android-tools"]
+dependencies = ["scrcpy", "android-tools", "kdeconnect"]
 
 # ───────────────── 插件级设置（service + panel + widget 共享） ─────────────────
 
@@ -85,8 +85,8 @@ entry = "widget.luau"
 [[panel]]
 id = "main"
 entry = "panel.luau"
-width = 600
-height = 540
+width = 700
+height = 560
 placement = "floating"
 position = "center"
 open_near_click = true
