@@ -35,8 +35,8 @@ local mutedPrevVolume = {}
 local deviceNameEdits = {}
 
 -- ── scrcpy 参数状态 ──────────────────────────────────────────────────────────
+-- 注：无 activePreset 状态变量--按钮高亮由 detectPreset(params) 值推导
 local paramsExpanded = false
-local activePreset = nil
 local pairExpanded = false
 local pairAddr = ""
 local pairCode = ""
@@ -59,16 +59,26 @@ local function paramsFor(adbId)
 	return p
 end
 
--- 程序化设值抑制标志：引擎在 diff 时对值变化的 slider 调 setValue，
--- 会同步触发 onChange（等同用户拖动）。点预设/自定义档时置 true，
--- 让 onChange 跳过（那次值变化来自程序而非用户），render 完成后清除。
-local suppressSliderEcho = false
-
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
 	perf = { max_size = 1280, bit_rate = 8,  max_fps = 60 },
 	save = { max_size = 1024, bit_rate = 4,  max_fps = 30 },
 }
+
+-- 当前参数命中的预设档；与任何预设都不匹配则为 "custom"。
+-- 按钮高亮由 params 值推导而非独立状态变量：引擎对程序化设值的滑块
+-- 也会异步触发 onChange（setValue 回声），独立变量会被回声改写导致
+-- 「点预设高亮停在自定义」；值推导则天然免疫回声。
+local function detectPreset(params)
+	for key, p in pairs(PRESETS) do
+		if params.max_size == p.max_size
+			and params.bit_rate == p.bit_rate
+			and params.max_fps == p.max_fps then
+			return key
+		end
+	end
+	return "custom"
+end
 
 -- 投屏目标解析：adb 设备用它自身；KDE 设备用 IP 匹配到的 adb 序列号
 -- （service 已按局域网 IP 匹配填充 d.adbId），无匹配时回退到 "IP:5555"。
@@ -589,15 +599,10 @@ local function paramsPanel(target)
 		sendCmd({ op = "restart_params", device = adbId, params = params })
 	end
 
-	local function applyPreset(key, p)
-		activePreset = key
+	local function applyPreset(_key, p)
 		for k, v in pairs(p) do params[k] = v end
 		commit(false)
-		-- render 期间引擎会对值变化的滑块 setValue 并触发 onChange，
-		-- 置抑制标志防止 onChange 把 activePreset 改回 custom
-		suppressSliderEcho = true
 		render()
-		suppressSliderEcho = false
 	end
 
 	local function startCast()
@@ -626,28 +631,29 @@ local function paramsPanel(target)
 
 	local children = {}
 
+	-- 按钮高亮由参数值推导（detectPreset），与状态变量无关，
+	-- 引擎的 setValue 回声不会影响高亮正确性
+	local currentPreset = detectPreset(params)
+
 	table.insert(children, ui.row({ gap = 4 }, {
 		ui.button({ text = t("panel.preset_hd"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "hd",
+			selected = currentPreset == "hd",
 			onClick = function() applyPreset("hd", PRESETS.hd) end, flexGrow = 1 }),
 		ui.button({ text = t("panel.preset_perf"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "perf",
+			selected = currentPreset == "perf",
 			onClick = function() applyPreset("perf", PRESETS.perf) end, flexGrow = 1 }),
 		ui.button({ text = t("panel.preset_save"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "save",
+			selected = currentPreset == "save",
 			onClick = function() applyPreset("save", PRESETS.save) end, flexGrow = 1 }),
 		ui.button({ text = t("panel.preset_custom"), variant = "ghost", controlSize = "sm",
-			selected = activePreset == "custom",
+			selected = currentPreset == "custom",
 			onClick = function()
-				activePreset = "custom"
 				local c = persistence.loadCustom(adbId)
 				if c then
 					for k, v in pairs(c) do params[k] = v end
 					commit(false)
 				end
-				suppressSliderEcho = true
 				render()
-				suppressSliderEcho = false
 			end, flexGrow = 1 }),
 	}))
 
@@ -662,14 +668,10 @@ local function paramsPanel(target)
 				min = min, max = max, step = step, value = val,
 				controlSize = "sm",
 				onChange = function(v)
-					-- 跳过程序化设值（点预设/自定义档时引擎 diff 触发的回声）
-					if suppressSliderEcho then return end
 					setter(tonumber(v))
-					activePreset = "custom"
 					render()
 				end,
 				onDragEnd = function()
-					activePreset = "custom"
 					commit(true)
 					render()
 				end,
@@ -693,12 +695,11 @@ local function paramsPanel(target)
 				ui.label({ text = t(labelKey), fontSize = 12, color = "on_surface", flexGrow = 1 }),
 				ui.toggle({
 					checked = checked,
-					onChange = function(v)
-						setter(v == "true")
-						activePreset = "custom"
-						commit(true)
-						render()
-					end,
+				onChange = function(v)
+					setter(v == "true")
+					commit(true)
+					render()
+				end,
 				}),
 			}),
 			ui.label({ text = t(descKey), fontSize = 10, color = "on_surface_variant" }),
