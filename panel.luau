@@ -875,7 +875,9 @@ function render()
 		local d = devices[sel]
 		middle = ui.scroll({ key = "body-scroll", flexGrow = 1, gap = 10 }, {
 			deviceCard(d),
-			ui.row({ key = "main-row", gap = 14, align = "stretch", justify = "center" }, {
+			-- 两栏最小高度 420：媒体/参数区内容少时也有足够高度
+			ui.row({ key = "main-row", gap = 14, minHeight = 420,
+				align = "stretch", justify = "center" }, {
 				leftColumn(d),
 				rightColumn(d),
 			}),
