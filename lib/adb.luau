@@ -4,11 +4,11 @@
 local M = {}
 local shell = require("./shell.luau")
 
--- adb devices -L 输出示例：
---   cf56f01f               device usb:5-1 product:piano model:25091RP04C
+-- adb devices -l 输出示例（注意是小写 -l；大写 -L 旧版 adb 不支持会报错）：
+--   cf56f01f               device usb:5-1 product:piano model:25091RP04C transport_id:1
 --   192.168.1.3:5555       device product:piano
 function M.listDevicesAsync(cb)
-	noctalia.runAsync("adb devices -L", function(result)
+	noctalia.runAsync("adb devices -l", function(result)
 		local out = {}
 		if result.exitCode == 0 then
 			for line in result.stdout:gmatch("[^\n]+") do
