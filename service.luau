@@ -238,12 +238,15 @@ function onIpc(event, payload)
 		local dev = findDevice(p.device_id)
 		noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or p.device_id }))
 	elseif event == "restart_with_params" then
-		-- 用户在 panel 改了参数：杀掉旧进程，用新参数重启
-		scrcpy.stop(p.device_id)
+		-- 仅当该设备当前正在投屏时才重启（stop+start）；否则只存参数，不自动开投屏
+		local wasRunning = running[p.device_id] ~= nil
+		if wasRunning then
+			scrcpy.stop(p.device_id)
+		end
 		local params = p.params or persistence.loadParams(p.device_id)
 		persistence.saveParams(p.device_id, params)
 		local dev = findDevice(p.device_id)
-		if dev then
+		if dev and wasRunning then
 			scrcpy.start(dev, params)
 			running[p.device_id] = true
 		end
