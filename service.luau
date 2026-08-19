@@ -865,13 +865,15 @@ local function handleCommand(cmd)
 			if params.record then cleanupRecordings() end
 			noctalia.notify(t("notify.started"):gsub("{name}", devRec.name or adbId))
 		elseif op == "pair_and_cast" then
-			-- 首次无线连接：adb pair（配对端口+配对码）→ adb connect（调试端口 5555）→ scrcpy
+			-- 首次无线连接：adb pair（配对端口+配对码）→ adb connect（调试端口）→ scrcpy
 			local ip = cmd.address or ""
 			local port = tostring(cmd.port or "")
+			local debugPort = tostring(cmd.debugPort or "")
 			local code = tostring(cmd.code or "")
-			local serial = ip .. ":5555"
+			local serial = ip .. ":" .. debugPort
 			local params = cmd.params or persistence.loadParams(serial)
-			noctalia.log("[phone-operate] pair_and_cast: " .. tostring(ip) .. ":" .. tostring(port))
+			noctalia.log("[phone-operate] pair_and_cast: " .. tostring(ip) .. ":" .. tostring(port)
+				.. " debugPort=" .. tostring(debugPort))
 			if ip == "" or port == "" or code == "" then
 				noctalia.log("[phone-operate] pair_and_cast: missing fields")
 				noctalia.notifyError(t("error.pair_failed"), "missing address/port/code")

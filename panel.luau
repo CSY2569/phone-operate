@@ -40,8 +40,9 @@ local activePreset = nil
 local pairExpanded = false
 local pairAddr = ""
 local pairCode = ""
--- 首次无线投屏的配对输入（端口号 + 配对码）
+-- 首次无线投屏的配对输入（配对端口 + 调试端口 + 配对码）
 local castPort = ""
+local castDebugPort = "5555"
 local castCode = ""
 
 local PRESETS = {
@@ -558,14 +559,14 @@ local function paramsPanel(target)
 			sendCmd({ op = "cast", device = adbId, params = params })
 			return
 		end
-		-- wifi 首次连接：需配对端口 + 配对码
+		-- wifi 首次连接：需配对端口 + 配对码 + 调试端口
 		if target.ip then
 			if castPort == "" or castCode == "" then
 				noctalia.notifyError(t("error.pair_failed"), t("panel.pair_missing"))
 				return
 			end
 			sendCmd({ op = "pair_and_cast", address = target.ip, port = castPort,
-				code = castCode, params = params })
+				debugPort = castDebugPort, code = castCode, params = params })
 			return
 		end
 		-- 离线且无 IP（如 USB 设备未被 adb 识别）：明确提示，而不是静默失败
@@ -658,10 +659,13 @@ local function paramsPanel(target)
 			ui.label({ text = t("panel.pair_first_title"), fontSize = 11, fontWeight = "bold",
 				color = "primary" }),
 			ui.label({ text = t("panel.pair_first_hint"), fontSize = 10, color = "on_surface_variant" }),
-			ui.row({ key = "cast-pair-ports", gap = 6 }, {
-				ui.input({ key = "cast-port", placeholder = t("panel.pair_port_placeholder"),
-					value = castPort, controlSize = "sm", flexGrow = 1,
-					onChange = function(v) castPort = v end }),
+			ui.input({ key = "cast-port", placeholder = t("panel.pair_port_placeholder"),
+				value = castPort, controlSize = "sm",
+				onChange = function(v) castPort = v end }),
+			ui.row({ key = "cast-pair-debug", gap = 6 }, {
+				ui.input({ key = "cast-debug", placeholder = t("panel.debug_port_placeholder"),
+					value = castDebugPort, controlSize = "sm", flexGrow = 1,
+					onChange = function(v) castDebugPort = v end }),
 				ui.input({ key = "cast-code", placeholder = t("panel.pair_code_placeholder"),
 					value = castCode, controlSize = "sm", width = 120,
 					onChange = function(v) castCode = v end }),

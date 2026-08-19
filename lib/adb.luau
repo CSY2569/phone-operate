@@ -51,10 +51,11 @@ end
 function M.pairAsync(address, code, cb)
 	local cmd = "adb pair " .. shell.quote(address) .. " " .. shell.quote(code)
 	noctalia.runAsync(cmd, function(result)
-		-- 成功输出 "Successfully paired to ..."（部分版本 "already paired"）
-		local out = result.stdout or ""
+		-- 成功输出 "Successfully paired to ..."（部分版本 "already paired"）。
+		-- 大小写不敏感匹配（Successfully 首字母大写）。
+		local out = (result.stdout or ""):lower()
 		local ok = result.exitCode == 0
-			and (out:match("successfully") ~= nil or out:match("already paired") ~= nil)
+			and (out:find("successfully paired") ~= nil or out:find("already paired") ~= nil)
 		cb(ok, result.stdout)
 	end)
 end
