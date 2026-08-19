@@ -59,6 +59,11 @@ local function paramsFor(adbId)
 	return p
 end
 
+-- 程序化设值抑制标志：引擎在 diff 时对值变化的 slider 调 setValue，
+-- 会同步触发 onChange（等同用户拖动）。点预设/自定义档时置 true，
+-- 让 onChange 跳过（那次值变化来自程序而非用户），render 完成后清除。
+local suppressSliderEcho = false
+
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
 	perf = { max_size = 1280, bit_rate = 8,  max_fps = 60 },
@@ -588,7 +593,11 @@ local function paramsPanel(target)
 		activePreset = key
 		for k, v in pairs(p) do params[k] = v end
 		commit(false)
+		-- render 期间引擎会对值变化的滑块 setValue 并触发 onChange，
+		-- 置抑制标志防止 onChange 把 activePreset 改回 custom
+		suppressSliderEcho = true
 		render()
+		suppressSliderEcho = false
 	end
 
 	local function startCast()
@@ -636,7 +645,9 @@ local function paramsPanel(target)
 					for k, v in pairs(c) do params[k] = v end
 					commit(false)
 				end
+				suppressSliderEcho = true
 				render()
+				suppressSliderEcho = false
 			end, flexGrow = 1 }),
 	}))
 
@@ -651,6 +662,8 @@ local function paramsPanel(target)
 				min = min, max = max, step = step, value = val,
 				controlSize = "sm",
 				onChange = function(v)
+					-- 跳过程序化设值（点预设/自定义档时引擎 diff 触发的回声）
+					if suppressSliderEcho then return end
 					setter(tonumber(v))
 					activePreset = "custom"
 					render()
