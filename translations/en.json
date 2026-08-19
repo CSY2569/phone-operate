@@ -18,6 +18,7 @@
     "cast_failed": "Cast failed",
     "cli_failed": "Command failed",
     "conn_failed": "Wireless connection failed",
+    "conn_hint": "Debug port rejected. Use the port shown under 'IP address & Port' in Wireless debugging, not the pairing port. Tried:",
     "pair_failed": "Pairing failed",
     "pick_failed": "Failed to open file picker",
     "pick_in_progress": "A file picker is already open",

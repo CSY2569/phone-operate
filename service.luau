@@ -891,7 +891,10 @@ local function handleCommand(cmd)
 					noctalia.log("[phone-operate] adb connect -> " .. tostring(connOk)
 						.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
 					if not connOk then
-						noctalia.notifyError(t("error.conn_failed"), connOut or "")
+						-- 连接被拒通常是因为调试端口填错：提示用户用手机
+						-- 「无线调试」页面「IP 地址和端口」显示的端口
+						noctalia.notifyError(t("error.conn_failed"),
+							(connOut or "") .. "\n" .. t("error.conn_hint") .. " " .. tostring(debugPort))
 						return
 					end
 					persistence.saveParams(serial, params)
