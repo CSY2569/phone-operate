@@ -52,6 +52,7 @@
     "panel.preset_hd": "高清",
     "panel.preset_perf": "性能",
     "panel.preset_save": "省电",
+    "panel.preset_custom": "自定义",
     "panel.turn_screen_off_desc": "手机屏幕熄灭，继续投屏",
     "panel.record_desc": "将投屏录制到文件",
     "panel.empty_title": "未检测到设备，请 USB 连接或配对无线设备。",

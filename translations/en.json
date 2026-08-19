@@ -52,6 +52,7 @@
     "panel.preset_hd": "HD",
     "panel.preset_perf": "Balanced",
     "panel.preset_save": "Power save",
+    "panel.preset_custom": "Custom",
     "panel.turn_screen_off_desc": "Phone screen off while mirroring",
     "panel.record_desc": "Record the mirror to a file",
     "panel.empty_title": "No device detected. Connect via USB or pair a wireless device.",

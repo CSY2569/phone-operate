@@ -76,6 +76,20 @@ function M.saveParams(device_id, params)
 	saveAll(data)
 end
 
+-- 用户自定义参数档：与 params 同构，仅由手动调整（滑块/开关）更新，预设不覆盖。
+-- 「自定义」按钮一键恢复此档。
+function M.loadCustom(device_id)
+	local data = loadAll()
+	return data.custom and data.custom[device_id] or nil
+end
+
+function M.saveCustom(device_id, params)
+	local data = loadAll()
+	data.custom = data.custom or {}
+	data.custom[device_id] = params
+	saveAll(data)
+end
+
 -- 每设备自定义名称：{ ["192.168.1.3:5555"] = "我的手机", ... }
 function M.loadName(device_id)
 	local data = loadAll()

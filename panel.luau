@@ -279,6 +279,19 @@ local function paramsPanel()
 			text = noctalia.tr("panel.preset_save"), variant = "ghost", controlSize = "sm",
 			onClick = function() applyPreset(PRESETS.save) end, flexGrow = 1,
 		}),
+		-- 自定义：恢复用户手动调整过的参数档（预设不覆盖它）
+		ui.button({
+			text = noctalia.tr("panel.preset_custom"), variant = "secondary", controlSize = "sm",
+			onClick = function()
+				local c = persistence.loadCustom(selectedDevice)
+				if c then
+					for k, v in pairs(c) do params[k] = v end
+					persistence.saveParams(selectedDevice, params)
+					ipcRestartWithParams()
+					render()
+				end
+			end, flexGrow = 1,
+		}),
 	}))
 
 	-- 滑块组：onChange 只做实时预览，onDragEnd 才存参+重启（拖动中不连环重启 scrcpy）
@@ -294,6 +307,7 @@ local function paramsPanel()
 				onDragEnd = function(v)
 					if v ~= nil then setter(tonumber(v)) end
 					persistence.saveParams(selectedDevice, params)
+					persistence.saveCustom(selectedDevice, params)
 					ipcRestartWithParams()
 					render()
 				end,
@@ -320,6 +334,7 @@ local function paramsPanel()
 					onChange = function(v)
 						setter(v == "true")
 						persistence.saveParams(selectedDevice, params)
+						persistence.saveCustom(selectedDevice, params)
 						ipcRestartWithParams()
 						render()
 					end,
