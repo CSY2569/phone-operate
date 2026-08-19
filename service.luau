@@ -887,25 +887,48 @@ local function handleCommand(cmd)
 					return
 				end
 				noctalia.notify(t("notify.pair_success"))
-				adb.connectAsync(serial, function(connOk, connOut)
-					noctalia.log("[phone-operate] adb connect -> " .. tostring(connOk)
-						.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
-					if not connOk then
-						-- 连接被拒通常是因为调试端口填错：提示用户用手机
-						-- 「无线调试」页面「IP 地址和端口」显示的端口
+				-- 调试端口不一定在无线调试主界面显眼处（小米只在配对弹窗显示
+				-- 配对端口）。依次尝试：用户填的调试端口 → 5555 → 配对端口，
+				-- 任一 connect 成功即投屏。
+				local candidates = { debugPort, "5555", port }
+				local tried = {}
+				local attempts = 0
+				local function tryNext()
+					attempts = attempts + 1
+					local target
+					for _, c in ipairs(candidates) do
+						if c and c ~= "" and not tried[c] then
+							tried[c] = true
+							target = c
+							break
+						end
+					end
+					if not target then
 						noctalia.notifyError(t("error.conn_failed"),
-							(connOut or "") .. "\n" .. t("error.conn_hint") .. " " .. tostring(debugPort))
+							t("error.conn_hint"))
 						return
 					end
-					persistence.saveParams(serial, params)
-					scrcpyRunning[serial] = true
-					local ok = scrcpy.start({ id = serial }, params)
-					noctalia.log("[phone-operate] scrcpy.start -> " .. tostring(ok))
-					publishRunning()
-					if params.record then cleanupRecordings() end
-					refreshAdbDevices()
-					noctalia.notify(t("notify.started"):gsub("{name}", ip))
-				end)
+					local trySerial = ip .. ":" .. target
+					adb.connectAsync(trySerial, function(connOk, connOut)
+						noctalia.log("[phone-operate] adb connect -> " .. tostring(connOk)
+							.. " (" .. tostring(trySerial) .. ")"
+							.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
+						if connOk then
+							local finalSerial = trySerial
+							persistence.saveParams(finalSerial, params)
+							scrcpyRunning[finalSerial] = true
+							local ok = scrcpy.start({ id = finalSerial }, params)
+							noctalia.log("[phone-operate] scrcpy.start -> " .. tostring(ok))
+							publishRunning()
+							if params.record then cleanupRecordings() end
+							refreshAdbDevices()
+							noctalia.notify(t("notify.started"):gsub("{name}", ip))
+							return
+						end
+						tryNext()
+					end)
+				end
+				tryNext()
 			end)
 		elseif op == "stop_cast" then
 			scrcpy.stop(cmd.device)
