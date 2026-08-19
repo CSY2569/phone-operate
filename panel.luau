@@ -171,6 +171,12 @@ local function headerRow(order, devices, sel)
 			end
 		end
 	end
+	table.insert(kids, ui.button({ key = "add-device", glyph = "plus", variant = "ghost",
+		controlSize = "sm", width = 32, height = 32, tooltip = t("panel.pair_add"),
+		onClick = function()
+			pairExpanded = true
+			render()
+		end }))
 	table.insert(kids, ui.button({ glyph = "refresh", variant = "ghost", controlSize = "sm",
 		tooltip = t("action.refresh"),
 		onClick = function() sendCmd({ op = "refresh" }) end }))
@@ -791,43 +797,38 @@ end
 
 -- ── adb 无线配对（折叠） ──────────────────────────────────────────────────────
 local function pairSection()
-	if pairExpanded then
-		return ui.column({ key = "pair-expanded", gap = 8, padding = 10, radius = 8, fill = "surface/0.5",
-			border = "on_surface/0.1", borderWidth = 1 }, {
-			ui.row({ gap = 8 }, {
-				ui.input({ key = "pair-addr", placeholder = t("panel.pair_addr_placeholder"),
-					controlSize = "sm",
-					onChange = function(v) pairAddr = v end, flexGrow = 1 }),
-				ui.input({ key = "pair-code", placeholder = t("panel.pair_code_placeholder"),
-					controlSize = "sm", width = 140,
-					onChange = function(v) pairCode = v end }),
-			}),
-			ui.markdown({ text = t("panel.pair_hint") }),
-			ui.row({ gap = 8 }, {
-				ui.button({ text = t("panel.pair_btn"), glyph = "link",
-					variant = "secondary", controlSize = "sm",
-					onClick = function()
-						if pairAddr ~= "" and pairCode ~= "" then
-							sendCmd({ op = "adb_pair", address = pairAddr, code = pairCode })
-							pairAddr, pairCode = "", ""
-							pairExpanded = false
-							render()
-						end
-					end, flexGrow = 1 }),
-				ui.button({ text = t("panel.cancel"), variant = "ghost", controlSize = "sm",
-					onClick = function()
+	if not pairExpanded then
+		return nil
+	end
+	return ui.column({ key = "pair-expanded", gap = 8, padding = 10, radius = 8, fill = "surface/0.5",
+		border = "on_surface/0.1", borderWidth = 1 }, {
+		ui.row({ gap = 8 }, {
+			ui.input({ key = "pair-addr", placeholder = t("panel.pair_addr_placeholder"),
+				controlSize = "sm",
+				onChange = function(v) pairAddr = v end, flexGrow = 1 }),
+			ui.input({ key = "pair-code", placeholder = t("panel.pair_code_placeholder"),
+				controlSize = "sm", width = 140,
+				onChange = function(v) pairCode = v end }),
+		}),
+		ui.markdown({ text = t("panel.pair_hint") }),
+		ui.row({ gap = 8 }, {
+			ui.button({ text = t("panel.pair_btn"), glyph = "link",
+				variant = "secondary", controlSize = "sm",
+				onClick = function()
+					if pairAddr ~= "" and pairCode ~= "" then
+						sendCmd({ op = "adb_pair", address = pairAddr, code = pairCode })
+						pairAddr, pairCode = "", ""
 						pairExpanded = false
 						render()
-					end, flexGrow = 1 }),
-			}),
-		})
-	end
-	return ui.button({ key = "pair-toggle", text = t("panel.pair_add"), glyph = "wifi",
-		variant = "ghost", controlSize = "sm",
-		onClick = function()
-			pairExpanded = true
-			render()
-		end })
+					end
+				end, flexGrow = 1 }),
+			ui.button({ text = t("panel.cancel"), variant = "ghost", controlSize = "sm",
+				onClick = function()
+					pairExpanded = false
+					render()
+				end, flexGrow = 1 }),
+		}),
+	})
 end
 
 -- ── 主渲染 ───────────────────────────────────────────────────────────────────
@@ -873,11 +874,14 @@ function render()
 		})
 	end
 
-	panel.render(ui.column({ gap = 10, padding = 12, flexGrow = 1 }, {
+	local rootChildren = {
 		headerRow(visibleOrder, devices, sel),
 		middle,
-		pairSection(),
-	}))
+	}
+	local pair = pairSection()
+	if pair then table.insert(rootChildren, pair) end
+
+	panel.render(ui.column({ gap = 10, padding = 12, flexGrow = 1 }, rootChildren))
 end
 
 function onOpen(_context) render() end
