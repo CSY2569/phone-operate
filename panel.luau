@@ -268,7 +268,7 @@ local function paramsPanel()
 		}),
 		-- 自定义：恢复用户手动调整过的参数档（预设不覆盖它）
 		ui.button({
-			text = noctalia.tr("panel.preset_custom"), variant = "secondary", controlSize = "sm",
+			text = noctalia.tr("panel.preset_custom"), variant = "ghost", controlSize = "sm",
 			onClick = function()
 				local c = persistence.loadCustom(selectedDevice)
 				if c then
