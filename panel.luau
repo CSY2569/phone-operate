@@ -98,7 +98,7 @@ local function deviceCard(dev, rows)
 	if isRenaming then
 		table.insert(rows, ui.row({
 			key = "dev-" .. dev.id,
-			fill = "primary/0.08", radius = 12, padding = 12, gap = 10, align = "center",
+			fill = "primary/0.08", radius = 10, padding = 10, gap = 8, align = "center",
 			border = "primary", borderWidth = 1,
 		}, {
 			ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16 }),
@@ -172,7 +172,7 @@ local function deviceCard(dev, rows)
 		end,
 	}, {
 		ui.box({ width = 3, radius = 2, fill = "primary", visible = isSel }),
-		ui.row({ padding = 12, gap = 10, align = "center", flexGrow = 1 }, {
+		ui.row({ padding = 10, gap = 8, align = "center", flexGrow = 1 }, {
 			ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
 			ui.column({ gap = 3, flexGrow = 1 }, {
 				ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface" }),
@@ -192,7 +192,7 @@ end
 
 -- ─── 头部（标题 + 副标题 | 统计 + 刷新 + 全部停止）───
 local function headerRow()
-	return ui.row({ gap = 12, align = "center" }, {
+	return ui.row({ gap = 10, align = "center" }, {
 		ui.column({ gap = 2 }, {
 			ui.label({ text = noctalia.tr("panel.title"), fontWeight = "bold" }),
 			ui.label({
@@ -235,11 +235,11 @@ local function paramsPanel()
 	local rows = {}
 
 	if not selectedDevice then
-		table.insert(rows, ui.column({ gap = 12, align = "center", padding = 32 }, {
+		table.insert(rows, ui.column({ gap = 10, align = "center", padding = 20 }, {
 			ui.glyph({ name = "adjustments", size = 32, color = "surface_variant" }),
 			ui.label({ text = noctalia.tr("panel.no_device"), color = "surface_variant" }),
 		}))
-		return ui.column({ gap = 12, flexGrow = 1 }, rows)
+		return ui.column({ gap = 8, flexGrow = 1 }, rows)
 	end
 
 	local dev = (function()
@@ -352,7 +352,7 @@ local function paramsPanel()
 		}),
 	}))
 
-	return ui.column({ gap = 12, flexGrow = 1 }, rows)
+	return ui.column({ gap = 8, flexGrow = 1 }, rows)
 end
 
 -- ─── 左栏：设备列表 ───
@@ -362,7 +362,7 @@ local function devicesPanel()
 
 	if #devices == 0 then
 		-- 空状态
-		table.insert(rows, ui.column({ gap = 12, align = "center", padding = 24 }, {
+		table.insert(rows, ui.column({ gap = 10, align = "center", padding = 16 }, {
 			ui.glyph({ name = "device-mobile", size = 40, color = "surface_variant" }),
 			ui.label({ text = noctalia.tr("panel.empty_title"), color = "surface_variant" }),
 			ui.button({
@@ -376,24 +376,24 @@ local function devicesPanel()
 		end
 	end
 
-	return ui.column({ gap = 10, flexGrow = 1 }, rows)
+	return ui.column({ gap = 8, flexGrow = 1 }, rows)
 end
 
 function render()
 	local rows = {}
 
 	table.insert(rows, headerRow())
-	table.insert(rows, ui.separator({ thickness = 1, spacing = 4 }))
+	table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
 
 	-- 双栏主体：左设备 / 右参数（stretch 让两栏与分隔线等高对齐）
-	table.insert(rows, ui.row({ gap = 16, align = "stretch" }, {
+	table.insert(rows, ui.row({ gap = 12, align = "stretch" }, {
 		devicesPanel(),
 		ui.box({ width = 1, fill = "surface_variant/0.5" }),
 		paramsPanel(),
 	}))
 
 	-- footer：配对（渐进披露）
-	table.insert(rows, ui.separator({ thickness = 1, spacing = 4 }))
+	table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
 	if not pairExpanded then
 		table.insert(rows, ui.button({
 			text = noctalia.tr("panel.pair_add"), variant = "primary", glyph = "wifi",
@@ -431,7 +431,7 @@ function render()
 		}))
 	end
 
-	panel.render(ui.scroll({ gap = 12, padding = 16 }, rows))
+	panel.render(ui.scroll({ gap = 8, padding = 12 }, rows))
 end
 
 -- ─── 回调 ───
