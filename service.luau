@@ -879,9 +879,10 @@ local function handleCommand(cmd)
 				noctalia.notifyError(t("error.pair_failed"), "missing address")
 				return
 			end
-			-- 候选调试端口：用户填的 → 5555 → 配对端口（配对端口通常不是
-			-- 调试端口，但作为最后兜底尝试）
-			local candidates = { debugPort, "5555", port }
+			-- 候选调试端口：用户填的 → 5555。注意：配对端口不是调试端口
+			-- （配对端口一次性，配对后即失效），connect 它会得到 offline/拒绝，
+			-- 所以不作为 connect 候选。
+			local candidates = { debugPort, "5555" }
 
 			local function finishCast(serial)
 				persistence.addHistory(serial, ip, "wifi")
@@ -960,9 +961,17 @@ local function handleCommand(cmd)
 						return
 					end
 					noctalia.notify(t("notify.pair_success"))
-					-- 配对成功后再次尝试 connect
-					tryConnect(candidates, function()
-						noctalia.notifyError(t("error.conn_failed"), t("error.conn_hint"))
+					-- 配对端口是一次性的，配对后 adb 可能残留 offline 连接；
+					-- 断开它，避免 connect 调试端口时被误判为 already connected。
+					adb.disconnect(ip .. ":" .. port)
+					adb.disconnect(ip .. ":" .. debugPort)
+					adb.disconnect(ip .. ":5555")
+					-- 给 adb 一点时间完成配对状态
+					noctalia.runAsync("sleep 1", function()
+						-- 配对成功后再次尝试 connect（只试调试端口 + 5555）
+						tryConnect(candidates, function()
+							noctalia.notifyError(t("error.conn_failed"), t("error.conn_hint"))
+						end)
 					end)
 				end)
 			end)
