@@ -731,7 +731,7 @@ local function paramsPanel(target)
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
-	return ui.column({ key = "left-panel", flexGrow = 1, minWidth = 340 }, {
+	return ui.column({ key = "left-panel", width = 340 }, {
 		ui.scroll({ key = "left-panel-scroll", flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
 	})
 end
