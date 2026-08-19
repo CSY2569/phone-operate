@@ -731,7 +731,7 @@ local function paramsPanel(target)
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
-	return ui.column({ key = "left-panel", flexGrow = 1, minWidth = 360 }, {
+	return ui.column({ key = "left-panel", flexGrow = 1, minWidth = 340 }, {
 		ui.scroll({ key = "left-panel-scroll", flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
 	})
 end
@@ -744,7 +744,7 @@ local function leftColumn(d)
 		return paramsPanel(target)
 	end
 	if d.source == "adb" then
-		return ui.column({ key = "left-hint", flexGrow = 1, minWidth = 360 }, {
+		return ui.column({ key = "left-hint", flexGrow = 1, minWidth = 340 }, {
 			ui.scroll({ key = "left-hint-scroll", flexGrow = 1, gap = 12, padding = 0 }, {
 				ui.column({ gap = 6, padding = 10, radius = 8, fill = "surface/0.5" }, {
 					ui.row({ gap = 6, align = "center" }, {
@@ -762,7 +762,7 @@ local function leftColumn(d)
 	if d.isReachable and d.isPaired then
 		table.insert(items, smsComposer(d))
 	end
-	return ui.column({ key = "left-media", flexGrow = 1, minWidth = 360 }, {
+	return ui.column({ key = "left-media", flexGrow = 1, minWidth = 340 }, {
 		ui.scroll({ key = "left-media-scroll", flexGrow = 1, gap = 12, padding = 0 }, items),
 	})
 end
