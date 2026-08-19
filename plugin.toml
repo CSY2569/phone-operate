@@ -1,11 +1,11 @@
 id = "icefish/phone-operate"
 name = "Phone Operate"
-version = "0.1.0"
+version = "0.1.1"
 plugin_api = 22
 author = "icefish"
 license = "MIT"
-description = "Control your phone — scrcpy casting plus KDE Connect (battery, ring, ping, share, SMS, media)."
-tags = ["scrcpy", "android", "phone", "control", "kdeconnect", "media"]
+description = "Mirror and control Android phones via scrcpy, with KDE Connect device actions."
+tags = ["bar", "panel", "service", "launcher", "media", "utility", "niri"]
 dependencies = ["scrcpy", "android-tools", "kdeconnect", "sshfs"]
 
 # ── KDE Connect 设置（来自 phone-connect） ─────────────────────────
