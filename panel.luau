@@ -848,32 +848,36 @@ function render()
 		sel = visibleOrder[1]
 	end
 
-	local body = {}
-	table.insert(body, headerRow(visibleOrder, devices, sel))
-
+	-- 中间内容区（设备卡 + 两栏 + 页脚）：包在 scroll 里，内容超高时可滚动，
+	-- 不会把底部的配对区挤出面板（修复投屏参数面板展开时配对区出界/不可见）。
+	local middle
 	if not backend.available and #visibleOrder == 0 then
-		table.insert(body, ui.column({ gap = 8, padding = 40, align = "center", flexGrow = 1 }, {
+		middle = ui.column({ gap = 8, padding = 40, align = "center", flexGrow = 1 }, {
 			ui.glyph({ name = "phone-off", size = 40, color = "on_surface_variant" }),
 			ui.label({ text = t("status.no_backend"), color = "on_surface_variant" }),
-		}))
+		})
 	elseif not sel or not devices[sel] then
-		table.insert(body, ui.column({ gap = 8, padding = 40, align = "center", flexGrow = 1 }, {
+		middle = ui.column({ gap = 8, padding = 40, align = "center", flexGrow = 1 }, {
 			ui.glyph({ name = "phone-off", size = 40, color = "on_surface_variant" }),
 			ui.label({ text = t("panel.empty"), color = "on_surface_variant" }),
-		}))
+		})
 	else
 		local d = devices[sel]
-		table.insert(body, deviceCard(d))
-		table.insert(body, ui.row({ key = "main-row", gap = 14, flexGrow = 1, align = "stretch", justify = "center" }, {
-			leftColumn(d),
-			rightColumn(d),
-		}))
-		table.insert(body, infoFooter(d))
+		middle = ui.scroll({ key = "body-scroll", flexGrow = 1, gap = 10 }, {
+			deviceCard(d),
+			ui.row({ key = "main-row", gap = 14, align = "stretch", justify = "center" }, {
+				leftColumn(d),
+				rightColumn(d),
+			}),
+			infoFooter(d),
+		})
 	end
 
-	table.insert(body, pairSection())
-
-	panel.render(ui.column({ gap = 10, padding = 12 }, body))
+	panel.render(ui.column({ gap = 10, padding = 12, flexGrow = 1 }, {
+		headerRow(visibleOrder, devices, sel),
+		middle,
+		pairSection(),
+	}))
 end
 
 function onOpen(_context) render() end
