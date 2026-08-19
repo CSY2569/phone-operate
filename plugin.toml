@@ -162,7 +162,7 @@ entry = "tile.luau"
 [[panel]]
 id = "main"
 entry = "panel.luau"
-width = 520
+width = 570
 height = 600
 placement = "attached"
 position = "auto"
@@ -172,7 +172,7 @@ keyboard_focus = "on_demand"
 [[panel]]
 id = "main_floating"
 entry = "panel.luau"
-width = 520
+width = 570
 height = 600
 placement = "floating"
 position = "center"
@@ -181,7 +181,7 @@ keyboard_focus = "on_demand"
 [[panel]]
 id = "main_widget"
 entry = "panel.luau"
-width = 520
+width = 570
 height = 600
 placement = "floating"
 position = "auto"
