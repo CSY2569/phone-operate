@@ -1,21 +1,23 @@
 -- panel.luau
--- 主力配置窗（declarative UI）。整洁化重构：卡片瘦身、间距统一、样式轻量。
--- 颜色全部用 Noctalia 主题角色 token，由主题解析、可被主题更改；冲突以 Noctalia 为准。后端 IPC 事件不变。
+-- 主力配置窗。按 UI-design 截图样式还原（见开发文档 §4.2 ASCII 模拟）：
+--   选中卡左侧翠绿轨；卡片多行（图标+名称 / 副标题）；右侧状态药丸 + 操作按钮；
+--   熄屏/录屏并排；配对区渐进披露。
+-- 颜色全部用 Noctalia 主题角色 token，由主题解析、可被主题更改；冲突以 Noctalia 为准。
+-- 后端 IPC 事件不变。
 local state = require("./lib/state.luau")
 local persistence = require("./lib/persistence.luau")
 local ipcMod = require("./lib/ipc.luau")
 
 local devices = {}
-local selectedDevice = nil  -- 当前选中的 device_id
-local params = {}           -- 当前选中设备的参数
-local renameDev = nil       -- 正在重命名的 device_id
-local renameVal = ""        -- 重命名输入框当前值
-local pairAddr = ""         -- 配对地址输入框当前值
-local pairCode = ""         -- 配对码输入框当前值
-local pairExpanded = false  -- 配对区渐进披露，默认收起
-local running = {}          -- 订阅的运行状态表 { device_id = true }
+local selectedDevice = nil
+local params = {}
+local renameDev = nil
+local renameVal = ""
+local pairAddr = ""
+local pairCode = ""
+local pairExpanded = false
+local running = {}
 
--- ─── 工具：发 IPC 给 service ───
 local function ipc(event, payload)
 	ipcMod.send(event, payload)
 end
@@ -31,7 +33,6 @@ local function countRunning()
 	return n
 end
 
--- ─── 订阅设备列表 + 运行状态 ───
 noctalia.state.watch(state.KEY_DEVICES, function(d)
 	devices = d or {}
 	if (not selectedDevice) and #devices > 0 then
@@ -56,36 +57,34 @@ function onOpen()
 	render()
 end
 
--- ─── 状态点色 + 文案 ───
-local function statusOf(dev)
+-- ─── 状态药丸（底色/文字色/文案）───
+local function statusPillOf(dev)
 	if running[dev.id] then
-		return "primary", noctalia.tr("panel.status_mirroring")
+		return "primary/0.16", "primary", noctalia.tr("panel.status_mirroring")
 	elseif dev.online then
-		return "on_surface", noctalia.tr("panel.status_online")
+		return "surface_variant/0.2", "on_surface", noctalia.tr("panel.status_online")
 	else
-		return "surface_variant", noctalia.tr("panel.status_offline")
+		return "surface_variant/0.2", "surface_variant", noctalia.tr("panel.status_offline")
 	end
 end
 
--- ─── 区段标签（统一风格）───
 local function sectionLabel(rows, text)
 	table.insert(rows, ui.label({
 		text = text, fontSize = 11, fontWeight = "bold", color = "surface_variant",
 	}))
 end
 
--- ─── 单个设备卡片（瘦身：选中 4 子节点，非选中 3）───
+-- ─── 设备卡片（截图样式：左轨 + 多行内容 + 右侧药丸/按钮）───
 local function deviceCard(dev, rows)
 	local isSel = (dev.id == selectedDevice)
 	local isRenaming = (renameDev == dev.id)
 	local isRunning = running[dev.id] ~= nil
-	local dotColor, statusText = statusOf(dev)
+	local pillFill, pillColor, statusText = statusPillOf(dev)
 
 	if isRenaming then
-		-- 重命名模式：label 位变输入框
 		table.insert(rows, ui.row({
 			key = "dev-" .. dev.id,
-			fill = "primary/0.10", radius = 10, padding = 10, gap = 10, align = "center",
+			fill = "primary/0.08", radius = 12, padding = 12, gap = 10, align = "center",
 			border = "primary", borderWidth = 1,
 		}, {
 			ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16 }),
@@ -113,7 +112,7 @@ local function deviceCard(dev, rows)
 		return
 	end
 
-	-- 主操作按钮：投屏中=停止，在线=投屏，离线=投屏(禁用)
+	-- 操作按钮：投屏中=停止 / 在线=投屏 / 离线=投屏(禁用)
 	local actionBtn
 	if isRunning then
 		actionBtn = ui.button({
@@ -134,7 +133,7 @@ local function deviceCard(dev, rows)
 		})
 	end
 
-	-- 重命名入口：仅选中卡显示
+	-- 重命名：仅选中卡显示（截图不显示常驻编辑按钮）
 	local editBtn = ui.button({
 		glyph = "edit", variant = "ghost", controlSize = "sm",
 		tooltip = noctalia.tr("panel.rename"),
@@ -148,8 +147,8 @@ local function deviceCard(dev, rows)
 
 	table.insert(rows, ui.row({
 		key = "dev-" .. dev.id,
-		fill = isSel and "primary/0.10" or "surface",
-		radius = 10, padding = 10, gap = 10, align = "center",
+		fill = isSel and "primary/0.08" or "surface",
+		radius = 12, padding = 0, gap = 0, align = "stretch",
 		border = isSel and "primary" or "surface_variant/0.5",
 		borderWidth = 1,
 		onClick = function()
@@ -158,24 +157,30 @@ local function deviceCard(dev, rows)
 			render()
 		end,
 	}, {
-		ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16 }),
-		ui.column({ gap = 2, flexGrow = 1 }, {
-			-- 状态点 + 设备名 同行
-			ui.row({ gap = 6, align = "center" }, {
-				ui.box({ width = 7, height = 7, radius = 4, fill = dotColor }),
-				ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface", flexGrow = 1 }),
+		-- 左侧翠绿轨（选中）
+		ui.box({ width = 3, radius = 2, fill = "primary", visible = isSel }),
+		-- 内层内容行（自带 padding）
+		ui.row({ padding = 12, gap = 10, align = "center", flexGrow = 1 }, {
+			ui.column({ gap = 3, flexGrow = 1 }, {
+				ui.row({ gap = 8, align = "center" }, {
+					ui.glyph({ name = dev.transport == "wifi" and "wifi" or "usb", size = 16, color = "on_surface" }),
+					ui.label({ text = dev.label, fontWeight = "bold", color = "on_surface" }),
+				}),
+				ui.label({
+					text = dev.transport .. " · " .. dev.id,
+					fontSize = 11, color = "surface_variant",
+				}),
 			}),
-			ui.label({
-				text = dev.transport .. " · " .. dev.id,
-				fontSize = 11, color = "surface_variant",
+			-- 状态药丸
+			ui.row({ fill = pillFill, radius = 8, paddingH = 8, paddingV = 3 }, {
+				ui.label({ text = statusText, fontSize = 11, color = pillColor }),
 			}),
+			actionBtn,
+			editBtn,
 		}),
-		actionBtn,
-		editBtn,
 	}))
 end
 
--- ─── 参数行（滑块） ───
 local function paramSlider(rows, labelKey, val, min, max, step, suffix, setter)
 	table.insert(rows, ui.row({ gap = 8, align = "center" }, {
 		ui.label({ text = noctalia.tr(labelKey), width = 72, color = "surface_variant" }),
@@ -191,6 +196,22 @@ local function paramSlider(rows, labelKey, val, min, max, step, suffix, setter)
 		}),
 		ui.label({ text = tostring(val) .. suffix, width = 48, color = "on_surface" }),
 	}))
+end
+
+local function toggleRow(labelKey, checked, setter)
+	return ui.row({ gap = 8, align = "center", flexGrow = 1 }, {
+		ui.label({ text = noctalia.tr(labelKey), color = "on_surface" }),
+		ui.toggle({
+			checked = checked,
+			onChange = function(v)
+				setter(v == "true")
+				persistence.saveParams(selectedDevice, params)
+				ipcRestartWithParams()
+				render()
+			end,
+			flexGrow = 1,
+		}),
+	})
 end
 
 function render()
@@ -209,7 +230,6 @@ function render()
 	}))
 
 	if #devices == 0 then
-		-- ─── 空状态 ───
 		table.insert(rows, ui.column({ gap = 12, align = "center", padding = 32 }, {
 			ui.glyph({ name = "device-mobile", size = 40, color = "surface_variant" }),
 			ui.label({ text = noctalia.tr("panel.no_device"), color = "surface_variant" }),
@@ -235,7 +255,14 @@ function render()
 			end)()
 			local devLabel = dev and dev.label or selectedDevice
 			table.insert(rows, ui.separator({ thickness = 1, spacing = 4 }))
-			sectionLabel(rows, noctalia.tr("panel.section.params") .. " · " .. devLabel)
+			-- 区段头带状态点（截图 "● 参数 · Mi 14"）
+			table.insert(rows, ui.row({ gap = 6, align = "center" }, {
+				ui.box({ width = 7, height = 7, radius = 4, fill = "primary" }),
+				ui.label({
+					text = noctalia.tr("panel.section.params") .. " · " .. devLabel,
+					fontSize = 11, fontWeight = "bold", color = "surface_variant",
+				}),
+			}))
 
 			paramSlider(rows, "panel.max_size", params.max_size or 1920,
 				256, 4096, 64, "", function(v) params.max_size = v end)
@@ -244,31 +271,12 @@ function render()
 			paramSlider(rows, "panel.max_fps", params.max_fps or 60,
 				1, 120, 1, "", function(v) params.max_fps = v end)
 
-			table.insert(rows, ui.row({ gap = 8, align = "center" }, {
-				ui.label({ text = noctalia.tr("panel.turn_screen_off"), width = 72, color = "surface_variant" }),
-				ui.toggle({
-					checked = params.turn_screen_off or false,
-					onChange = function(v)
-						params.turn_screen_off = (v == "true")
-						persistence.saveParams(selectedDevice, params)
-						ipcRestartWithParams()
-						render()
-					end,
-					flexGrow = 1,
-				}),
-			}))
-			table.insert(rows, ui.row({ gap = 8, align = "center" }, {
-				ui.label({ text = noctalia.tr("panel.record"), width = 72, color = "surface_variant" }),
-				ui.toggle({
-					checked = params.record or false,
-					onChange = function(v)
-						params.record = (v == "true")
-						persistence.saveParams(selectedDevice, params)
-						ipcRestartWithParams()
-						render()
-					end,
-					flexGrow = 1,
-				}),
+			-- 熄屏 / 录屏 并排
+			table.insert(rows, ui.row({ gap = 12 }, {
+				toggleRow("panel.turn_screen_off", params.turn_screen_off or false,
+					function(v) params.turn_screen_off = v end),
+				toggleRow("panel.record", params.record or false,
+					function(v) params.record = v end),
 			}))
 
 			-- 断开 / 回 USB
@@ -308,9 +316,7 @@ function render()
 			onSubmit = "onPairSubmit",
 			flexGrow = 1,
 		}))
-		table.insert(rows, ui.markdown({
-			text = noctalia.tr("panel.pair_hint"),
-		}))
+		table.insert(rows, ui.markdown({ text = noctalia.tr("panel.pair_hint") }))
 		table.insert(rows, ui.button({
 			text = noctalia.tr("panel.pair_btn"), variant = "secondary", glyph = "link",
 			onClick = "onPair", flexGrow = 1,
@@ -340,12 +346,7 @@ function onPair()
 	end
 end
 
--- 回车快捷：任一输入框回车即尝试配对
-function onPairSubmit()
-	onPair()
-end
-
--- input 值变化时实时捕获（uncontrolled input，需自己存值）
+function onPairSubmit() onPair() end
 function onPairAddr(v) pairAddr = v end
 function onPairCode(v) pairCode = v end
 
@@ -354,7 +355,6 @@ function onRenameSubmit()
 		ipc("rename", { device_id = renameDev, name = renameVal })
 		renameDev = nil
 		renameVal = ""
-		-- 刷新由 state watch 自动触发 render
 	end
 end
 
