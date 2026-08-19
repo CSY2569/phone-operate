@@ -131,7 +131,7 @@ local function adbDeviceCard(d)
 	local statusText = online and t("status.connected") or t("status.offline")
 	local statusColor = online and "primary" or "on_surface_variant"
 
-	return ui.row({ gap = 10, padding = 12, radius = 10, fill = "surface/0.7",
+	return ui.row({ key = "device-card", gap = 10, padding = 12, radius = 10, fill = "surface/0.7",
 		border = "primary/0.2", borderWidth = 1, align = "center" }, {
 		ui.box({ width = 44, height = 44, radius = 22, fill = "primary/0.15" }, {
 			ui.glyph({ name = d.transport == "wifi" and "wifi" or "usb",
@@ -248,7 +248,7 @@ local function deviceCard(d)
 		render()
 	end
 
-	return ui.row({ gap = 10, padding = 12, radius = 10, fill = "surface/0.7",
+	return ui.row({ key = "device-card", gap = 10, padding = 12, radius = 10, fill = "surface/0.7",
 		border = "primary/0.2", borderWidth = 1, align = "center" }, {
 		imgPath and ui.image({ path = imgPath, width = 44, height = 44,
 			radius = 22, fit = "cover", onClick = pickImage })
@@ -316,8 +316,8 @@ local function rightColumn(d)
 			end, paramsExpanded and "primary" or "outline"))
 		table.insert(btns, vActionBtn(t("action.disconnect"), "plug-off",
 			function() sendCmd({ op = "adb_disconnect", device = d.adbId }) end, "ghost"))
-		return ui.column({ width = 110 }, {
-			ui.scroll({ flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
+		return ui.column({ key = "right-col", width = 110 }, {
+			ui.scroll({ key = "right-scroll", flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
 		})
 	end
 
@@ -346,8 +346,8 @@ local function rightColumn(d)
 		table.insert(btns, vActionBtn(t("action.unpair"), "link-off",
 			function() sendCmd({ op = "unpair", device = d.id }) end, "ghost"))
 	end
-	return ui.column({ width = 110 }, {
-		ui.scroll({ flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
+	return ui.column({ key = "right-col", width = 110 }, {
+		ui.scroll({ key = "right-scroll", flexGrow = 1, gap = 8, padding = 8, align = "stretch" }, btns),
 	})
 end
 
@@ -584,8 +584,8 @@ local function paramsPanel(d)
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
-	return ui.column({ flexGrow = 1 }, {
-		ui.scroll({ flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
+	return ui.column({ key = "left-panel", flexGrow = 1, minWidth = 360 }, {
+		ui.scroll({ key = "left-panel-scroll", flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
 	})
 end
 
@@ -595,8 +595,8 @@ local function leftColumn(d)
 		if paramsExpanded then
 			return paramsPanel(d)
 		end
-		return ui.column({ flexGrow = 1 }, {
-			ui.scroll({ flexGrow = 1, gap = 12, padding = 0 }, {
+		return ui.column({ key = "left-hint", flexGrow = 1, minWidth = 360 }, {
+			ui.scroll({ key = "left-hint-scroll", flexGrow = 1, gap = 12, padding = 0 }, {
 				ui.column({ gap = 6, padding = 10, radius = 8, fill = "surface/0.5" }, {
 					ui.row({ gap = 6, align = "center" }, {
 						ui.glyph({ name = "device-mobile", size = 13, color = "primary" }),
@@ -613,8 +613,8 @@ local function leftColumn(d)
 	if d.isReachable and d.isPaired then
 		table.insert(items, smsComposer(d))
 	end
-	return ui.column({ flexGrow = 1 }, {
-		ui.scroll({ flexGrow = 1, gap = 12, padding = 0 }, items),
+	return ui.column({ key = "left-media", flexGrow = 1, minWidth = 360 }, {
+		ui.scroll({ key = "left-media-scroll", flexGrow = 1, gap = 12, padding = 0 }, items),
 	})
 end
 
@@ -651,7 +651,7 @@ end
 -- ── adb 无线配对（折叠） ──────────────────────────────────────────────────────
 local function pairSection()
 	if pairExpanded then
-		return ui.column({ gap = 8, padding = 10, radius = 8, fill = "surface/0.5",
+		return ui.column({ key = "pair-expanded", gap = 8, padding = 10, radius = 8, fill = "surface/0.5",
 			border = "on_surface/0.1", borderWidth = 1 }, {
 			ui.row({ gap = 8 }, {
 				ui.input({ key = "pair-addr", placeholder = t("panel.pair_addr_placeholder"),
@@ -681,12 +681,12 @@ local function pairSection()
 			}),
 		})
 	end
-	return ui.button({ text = t("panel.pair_add"), glyph = "wifi",
+	return ui.button({ key = "pair-toggle", text = t("panel.pair_add"), glyph = "wifi",
 		variant = "ghost", controlSize = "sm",
 		onClick = function()
 			pairExpanded = true
 			render()
-		end, flexGrow = 1 })
+		end })
 end
 
 -- ── 主渲染 ───────────────────────────────────────────────────────────────────
@@ -713,7 +713,7 @@ function render()
 	else
 		local d = devices[sel]
 		table.insert(body, deviceCard(d))
-		table.insert(body, ui.row({ gap = 14, flexGrow = 1, align = "stretch", justify = "center" }, {
+		table.insert(body, ui.row({ key = "main-row", gap = 14, flexGrow = 1, align = "stretch", justify = "center" }, {
 			leftColumn(d),
 			rightColumn(d),
 		}))
