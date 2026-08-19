@@ -725,11 +725,6 @@ local function paramsPanel(target)
 		onClick = startCast })
 
 	local scrollItems = {
-		ui.column({ gap = 6, padding = 10, radius = 8, fill = "surface/0.5",
-			border = "on_surface/0.1", borderWidth = 1 },
-			{ ui.label({ text = t("panel.params"), fontSize = 12, fontWeight = "bold",
-				color = "on_surface" }),
-				ui.label({ text = t("panel.params_hint"), fontSize = 10, color = "on_surface_variant" }) }),
 		startBtn,
 	}
 	if pairInput then
@@ -738,6 +733,9 @@ local function paramsPanel(target)
 	for _, c in ipairs(children) do
 		table.insert(scrollItems, c)
 	end
+	-- 底部小字提示（替代原「投屏参数」标题卡片，节省空间）
+	table.insert(scrollItems, ui.label({ key = "params-hint-foot", text = t("panel.params_hint"),
+		fontSize = 9, color = "on_surface_variant" }))
 	return ui.column({ key = "left-panel", width = 340 }, {
 		ui.scroll({ key = "left-panel-scroll", flexGrow = 1, gap = 10, padding = 0 }, scrollItems),
 	})
