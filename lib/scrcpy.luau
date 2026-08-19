@@ -47,9 +47,9 @@ end
 -- 启动 scrcpy（fire-and-forget，runAsync 不带 callback 不捕获输出）
 -- 注意：runAsync 不返回 PID（已知限制，见开发文档 §11.2）。
 -- 进程生命周期由 service 层用 running[device_id]=true 追踪，stop 靠 pkill。
+-- 返回 runAsync 的布尔值（是否成功启动 detached 进程）。
 function M.start(device, params)
-	noctalia.runAsync(M.buildCommand(device, params))
-	return nil
+	return noctalia.runAsync(M.buildCommand(device, params))
 end
 
 -- 停止指定设备的 scrcpy：pkill 精确匹配命令行里的 "-s <device_id>"

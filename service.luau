@@ -844,15 +844,26 @@ local function handleCommand(cmd)
 			local adbId = cmd.device
 			local params = cmd.params or persistence.loadParams(adbId)
 			persistence.saveParams(adbId, params)
+			local devRec = devices["adb:" .. adbId]
 			noctalia.log("[phone-operate] cast: " .. tostring(adbId)
-				.. " online=" .. tostring(devices["adb:" .. adbId] and devices["adb:" .. adbId].isReachable))
+				.. " inList=" .. tostring(devRec ~= nil)
+				.. " online=" .. tostring(devRec and devRec.isReachable))
+			if not devRec or devRec.isReachable ~= true then
+				-- 设备不在 adb 列表或离线：可能是残留的 USB 快照，明确提示
+				noctalia.notifyError(t("error.cast_failed"),
+					t("panel.cast_offline_hint") .. " (" .. tostring(adbId) .. ")")
+				return
+			end
 			local ok = scrcpy.start({ id = adbId }, params)
 			noctalia.log("[phone-operate] scrcpy.start returned: " .. tostring(ok))
+			if ok == false then
+				noctalia.notifyError(t("error.cast_failed"), "scrcpy launch failed")
+				return
+			end
 			scrcpyRunning[adbId] = true
 			publishRunning()
 			if params.record then cleanupRecordings() end
-			local d = devices["adb:" .. adbId]
-			noctalia.notify(t("notify.started"):gsub("{name}", d and d.name or adbId))
+			noctalia.notify(t("notify.started"):gsub("{name}", devRec.name or adbId))
 		elseif op == "pair_and_cast" then
 			-- 首次无线连接：adb pair（配对端口+配对码）→ adb connect（调试端口 5555）→ scrcpy
 			local ip = cmd.address or ""
@@ -860,24 +871,31 @@ local function handleCommand(cmd)
 			local code = tostring(cmd.code or "")
 			local serial = ip .. ":5555"
 			local params = cmd.params or persistence.loadParams(serial)
+			noctalia.log("[phone-operate] pair_and_cast: " .. tostring(ip) .. ":" .. tostring(port))
 			if ip == "" or port == "" or code == "" then
+				noctalia.log("[phone-operate] pair_and_cast: missing fields")
 				noctalia.notifyError(t("error.pair_failed"), "missing address/port/code")
 				return
 			end
 			adb.pairAsync(ip .. ":" .. port, code, function(pairOk, pairOut)
+				noctalia.log("[phone-operate] adb pair -> " .. tostring(pairOk)
+					.. (pairOut and (" | " .. pairOut:gsub("[\r\n]+", " ")) or ""))
 				if not pairOk then
 					noctalia.notifyError(t("error.pair_failed"), pairOut or "")
 					return
 				end
 				noctalia.notify(t("notify.pair_success"))
 				adb.connectAsync(serial, function(connOk, connOut)
+					noctalia.log("[phone-operate] adb connect -> " .. tostring(connOk)
+						.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
 					if not connOk then
 						noctalia.notifyError(t("error.conn_failed"), connOut or "")
 						return
 					end
 					persistence.saveParams(serial, params)
 					scrcpyRunning[serial] = true
-					scrcpy.start({ id = serial }, params)
+					local ok = scrcpy.start({ id = serial }, params)
+					noctalia.log("[phone-operate] scrcpy.start -> " .. tostring(ok))
 					publishRunning()
 					if params.record then cleanupRecordings() end
 					refreshAdbDevices()

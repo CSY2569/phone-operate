@@ -46,13 +46,15 @@ function M.connectAsync(address, cb)
 	end)
 end
 
--- adb pair IP:PORT，通过 shell 管道喂配对码
+-- adb pair IP:PORT 配对码（直接传参，不依赖 echo 管道）
 -- 配对码限定 6 位纯数字，避免注入；address 经 shell.quote 转义
 function M.pairAsync(address, code, cb)
-	local cmd = string.format("echo %s | adb pair %s",
-		shell.quote(code), shell.quote(address))
+	local cmd = "adb pair " .. shell.quote(address) .. " " .. shell.quote(code)
 	noctalia.runAsync(cmd, function(result)
-		local ok = result.exitCode == 0 and result.stdout:match("successfully") ~= nil
+		-- 成功输出 "Successfully paired to ..."（部分版本 "already paired"）
+		local out = result.stdout or ""
+		local ok = result.exitCode == 0
+			and (out:match("successfully") ~= nil or out:match("already paired") ~= nil)
 		cb(ok, result.stdout)
 	end)
 end

@@ -549,6 +549,10 @@ local function paramsPanel(target)
 	end
 
 	local function startCast()
+		noctalia.log("[phone-operate] startCast: adbId=" .. tostring(adbId)
+			.. " online=" .. tostring(target.online)
+			.. " ip=" .. tostring(target.ip)
+			.. " transport=" .. tostring(target.transport))
 		-- 设备已在线（USB 或 wifi 已连接）：直接投屏
 		if target.online then
 			sendCmd({ op = "cast", device = adbId, params = params })
