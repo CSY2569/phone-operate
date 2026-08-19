@@ -215,10 +215,13 @@ function onIpc(event, payload)
 		if params.record then
 			cleanupRecordings()
 		end
+		noctalia.notify("Phone Operate", noctalia.tr("notify.started", { name = dev.label }))
 	elseif event == "stop" then
 		scrcpy.stop(p.device_id)
 		running[p.device_id] = nil
 		noctalia.state.set(state.KEY_RUNNING, running)
+		local dev = findDevice(p.device_id)
+		noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or p.device_id }))
 	elseif event == "restart_with_params" then
 		-- 用户在 panel 改了参数：杀掉旧进程，用新参数重启
 		scrcpy.stop(p.device_id)
@@ -247,7 +250,21 @@ function onIpc(event, payload)
 		adb.disconnect(p.device_id)
 		running[p.device_id] = nil
 		noctalia.state.set(state.KEY_RUNNING, running)
+		local dev = findDevice(p.device_id)
+		noctalia.notify("Phone Operate", noctalia.tr("notify.disconnected", { name = dev and dev.label or p.device_id }))
 		refreshDevices()
+	elseif event == "refresh" then
+		-- 手动刷新设备列表（panel 头部「刷新」按钮）
+		refreshDevices()
+	elseif event == "stop_all" then
+		-- 全部停止投屏（panel 头部「全部停止」按钮）
+		for device_id, _ in pairs(running) do
+			scrcpy.stop(device_id)
+			local dev = findDevice(device_id)
+			noctalia.notify("Phone Operate", noctalia.tr("notify.stopped", { name = dev and dev.label or device_id }))
+		end
+		running = {}
+		noctalia.state.set(state.KEY_RUNNING, running)
 	elseif event == "usb_mode" then
 		adb.usbMode(p.device_id)
 		refreshDevices()

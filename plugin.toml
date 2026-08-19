@@ -81,12 +81,12 @@ entry = "service.luau"
 id = "status"
 entry = "widget.luau"
 
-# panel：主力配置 UI（用完即关弹窗）
+# panel：主力配置 UI（双栏：左设备列表、右选中设备参数）
 [[panel]]
 id = "main"
 entry = "panel.luau"
-width = 380
-height = 520
+width = 720
+height = 560
 placement = "floating"
 position = "center"
 open_near_click = true
