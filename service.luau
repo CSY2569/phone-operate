@@ -865,38 +865,41 @@ local function handleCommand(cmd)
 			if params.record then cleanupRecordings() end
 			noctalia.notify(t("notify.started"):gsub("{name}", devRec.name or adbId))
 		elseif op == "pair_and_cast" then
-			-- 首次无线连接：adb pair（配对端口+配对码）→ adb connect（调试端口）→ scrcpy
+			-- 无线投屏：先尝试直接 connect（设备可能已配对/已连接过，
+			-- 配对码是一次性的，重复配对会失败）；全部失败才执行 adb pair。
 			local ip = cmd.address or ""
 			local port = tostring(cmd.port or "")
 			local debugPort = tostring(cmd.debugPort or "")
 			local code = tostring(cmd.code or "")
-			local serial = ip .. ":" .. debugPort
-			local params = cmd.params or persistence.loadParams(serial)
+			local params = cmd.params or persistence.loadParams(ip .. ":5555")
 			noctalia.log("[phone-operate] pair_and_cast: " .. tostring(ip) .. ":" .. tostring(port)
 				.. " debugPort=" .. tostring(debugPort))
-			if ip == "" or port == "" or code == "" then
-				noctalia.log("[phone-operate] pair_and_cast: missing fields")
-				noctalia.notifyError(t("error.pair_failed"), "missing address/port/code")
+			if ip == "" then
+				noctalia.log("[phone-operate] pair_and_cast: missing address")
+				noctalia.notifyError(t("error.pair_failed"), "missing address")
 				return
 			end
-			adb.pairAsync(ip .. ":" .. port, code, function(pairOk, pairOut)
-				noctalia.log("[phone-operate] adb pair -> " .. tostring(pairOk)
-					.. (pairOut and (" | " .. pairOut:gsub("[\r\n]+", " ")) or ""))
-				if not pairOk then
-					noctalia.notifyError(t("error.pair_failed"), pairOut or "")
-					return
-				end
-				noctalia.notify(t("notify.pair_success"))
-				-- 调试端口不一定在无线调试主界面显眼处（小米只在配对弹窗显示
-				-- 配对端口）。依次尝试：用户填的调试端口 → 5555 → 配对端口，
-				-- 任一 connect 成功即投屏。
-				local candidates = { debugPort, "5555", port }
+			-- 候选调试端口：用户填的 → 5555 → 配对端口（配对端口通常不是
+			-- 调试端口，但作为最后兜底尝试）
+			local candidates = { debugPort, "5555", port }
+
+			local function finishCast(serial)
+				persistence.addHistory(serial, ip, "wifi")
+				persistence.saveParams(serial, params)
+				scrcpyRunning[serial] = true
+				local ok = scrcpy.start({ id = serial }, params)
+				noctalia.log("[phone-operate] scrcpy.start -> " .. tostring(ok))
+				publishRunning()
+				if params.record then cleanupRecordings() end
+				refreshAdbDevices()
+				noctalia.notify(t("notify.started"):gsub("{name}", ip))
+			end
+
+			local function tryConnect(candidatesLeft, onAllFail)
 				local tried = {}
-				local attempts = 0
-				local function tryNext()
-					attempts = attempts + 1
+				local function next()
 					local target
-					for _, c in ipairs(candidates) do
+					for _, c in ipairs(candidatesLeft) do
 						if c and c ~= "" and not tried[c] then
 							tried[c] = true
 							target = c
@@ -904,8 +907,7 @@ local function handleCommand(cmd)
 						end
 					end
 					if not target then
-						noctalia.notifyError(t("error.conn_failed"),
-							t("error.conn_hint"))
+						onAllFail()
 						return
 					end
 					local trySerial = ip .. ":" .. target
@@ -914,21 +916,35 @@ local function handleCommand(cmd)
 							.. " (" .. tostring(trySerial) .. ")"
 							.. (connOut and (" | " .. connOut:gsub("[\r\n]+", " ")) or ""))
 						if connOk then
-							local finalSerial = trySerial
-							persistence.saveParams(finalSerial, params)
-							scrcpyRunning[finalSerial] = true
-							local ok = scrcpy.start({ id = finalSerial }, params)
-							noctalia.log("[phone-operate] scrcpy.start -> " .. tostring(ok))
-							publishRunning()
-							if params.record then cleanupRecordings() end
-							refreshAdbDevices()
-							noctalia.notify(t("notify.started"):gsub("{name}", ip))
+							finishCast(trySerial)
 							return
 						end
-						tryNext()
+						next()
 					end)
 				end
-				tryNext()
+				next()
+			end
+
+			-- 第一步：直接 connect（已配对过则直接成功，无需重新配对）
+			tryConnect(candidates, function()
+				-- 全部 connect 失败：需要配对（配对码一次性，需用户提供新的）
+				if port == "" or code == "" then
+					noctalia.notifyError(t("error.conn_failed"), t("error.conn_hint"))
+					return
+				end
+				adb.pairAsync(ip .. ":" .. port, code, function(pairOk, pairOut)
+					noctalia.log("[phone-operate] adb pair -> " .. tostring(pairOk)
+						.. (pairOut and (" | " .. pairOut:gsub("[\r\n]+", " ")) or ""))
+					if not pairOk then
+						noctalia.notifyError(t("error.pair_failed"), pairOut or "")
+						return
+					end
+					noctalia.notify(t("notify.pair_success"))
+					-- 配对成功后再次尝试 connect
+					tryConnect(candidates, function()
+						noctalia.notifyError(t("error.conn_failed"), t("error.conn_hint"))
+					end)
+				end)
 			end)
 		elseif op == "stop_cast" then
 			scrcpy.stop(cmd.device)
