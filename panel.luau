@@ -1,9 +1,8 @@
 -- panel.luau
--- 主力配置窗。统一设备列表（adb/scrcpy + KDE Connect），主区：
---   左 = 媒体控件 + 短信发送（KDE Connect 设备）
---   右 = 操作按钮（adb：投屏/停止/断开/回USB/参数；kde：响铃/ping/浏览/剪贴板/配对）
---   投屏参数收进可展开区（仅 adb 设备）
--- 颜色全部 Noctalia 主题角色 token；后端 IPC 事件不变 + 新增 kde 事件。
+-- 统一设备列表（adb 与 KDE Connect 按设备合并），UI 参照 phone-connect：
+--   右栏操作按钮（响铃/ping/浏览/剪贴板/分享 + 投屏参数 + 投屏/停止 + 配对）
+--   「投屏参数」点击后覆盖左栏媒体+短信区域
+-- 颜色全 Noctalia 主题角色 token。
 local state = require("./lib/state.luau")
 local persistence = require("./lib/persistence.luau")
 local ipcMod = require("./lib/ipc.luau")
@@ -17,9 +16,9 @@ local pairCode = ""
 local pairExpanded = false
 local paramsExpanded = false
 local activePreset = nil
-local smsDrafts = {}   -- [deviceId] = { dest, msg }
-local seekDrag = {}    -- [deviceId] = 拖动中的预览位置
-local volDrag = {}     -- [deviceId] = 拖动中的预览音量
+local smsDrafts = {}
+local seekDrag = {}
+local volDrag = {}
 
 local PRESETS = {
 	hd   = { max_size = 1920, bit_rate = 16, max_fps = 60 },
@@ -35,6 +34,9 @@ local function ipcRestartWithParams()
 	if not selectedDevice then return end
 	ipc("restart_with_params", { device_id = selectedDevice, params = params })
 end
+
+local function hasAdb(dev) return dev.adb_id ~= nil end
+local function hasKde(dev) return dev.kde_id ~= nil end
 
 local function countRunning()
 	local n = 0
@@ -62,13 +64,21 @@ local function fmtTime(ms)
 	return string.format("%d:%02d", math.floor(total / 60), total % 60)
 end
 
+local function selectDevice(dev)
+	selectedDevice = dev.id
+	params = persistence.loadParams(dev.id)
+	-- adb-only 设备默认展开参数（左栏无媒体/短信可显示）
+	paramsExpanded = not hasKde(dev)
+	render()
+end
+
 noctalia.state.watch(state.KEY_DEVICES, function(d)
 	devices = d or {}
 	if (not selectedDevice) and #devices > 0 then
-		selectedDevice = devices[1].id
-		params = persistence.loadParams(selectedDevice)
+		selectDevice(devices[1])
+	else
+		render()
 	end
-	render()
 end)
 
 noctalia.state.watch(state.KEY_RUNNING, function(r)
@@ -79,11 +89,11 @@ end)
 function onOpen()
 	devices = noctalia.state.get(state.KEY_DEVICES) or {}
 	running = noctalia.state.get(state.KEY_RUNNING) or {}
-	if #devices > 0 then
-		selectedDevice = selectedDevice or devices[1].id
-		params = persistence.loadParams(selectedDevice)
+	if #devices > 0 and not selectedDevice then
+		selectDevice(devices[1])
+	else
+		render()
 	end
-	render()
 end
 
 local function sectionLabel(rows, text)
@@ -117,25 +127,19 @@ local function headerRow()
 	})
 end
 
--- ─── 设备切换器（紧凑按钮） ───
+-- ─── 设备切换器 ───
 local function deviceSwitcher()
 	local buttons = {}
 	for _, dev in ipairs(devices) do
 		local glyph = "device-mobile"
-		if dev.source == "adb" then
-			glyph = (dev.transport == "wifi") and "wifi" or "usb"
-		end
+		if hasAdb(dev) then glyph = (dev.transport == "wifi") and "wifi" or "usb" end
 		table.insert(buttons, ui.button({
 			key = "sw-" .. dev.id,
 			text = dev.label,
 			glyph = glyph,
 			variant = (selectedDevice == dev.id) and "primary" or "ghost",
 			controlSize = "sm",
-			onClick = function()
-				selectedDevice = dev.id
-				params = persistence.loadParams(dev.id)
-				render()
-			end,
+			onClick = function() selectDevice(dev) end,
 			flexGrow = 1,
 		}))
 	end
@@ -162,17 +166,17 @@ local function mediaSection(dev, rows)
 	table.insert(rows, ui.row({ gap = 6 }, {
 		ui.button({ glyph = "player-skip-back", variant = "ghost", controlSize = "sm",
 			tooltip = noctalia.tr("media.prev"),
-			onClick = function() ipc("media", { device_id = dev.id, action = "Previous" }) end }),
+			onClick = function() ipc("media", { device_id = dev.kde_id, action = "Previous" }) end }),
 		ui.button({ glyph = m.isPlaying and "player-pause" or "player-play",
 			variant = "primary", controlSize = "sm",
 			tooltip = noctalia.tr(m.isPlaying and "media.pause" or "media.play"),
-			onClick = function() ipc("media", { device_id = dev.id, action = "PlayPause" }) end }),
+			onClick = function() ipc("media", { device_id = dev.kde_id, action = "PlayPause" }) end }),
 		ui.button({ glyph = "player-skip-forward", variant = "ghost", controlSize = "sm",
 			tooltip = noctalia.tr("media.next"),
-			onClick = function() ipc("media", { device_id = dev.id, action = "Next" }) end }),
+			onClick = function() ipc("media", { device_id = dev.kde_id, action = "Next" }) end }),
 		ui.button({ glyph = "player-stop", variant = "ghost", controlSize = "sm",
 			tooltip = noctalia.tr("media.stop"),
-			onClick = function() ipc("media", { device_id = dev.id, action = "Stop" }) end }),
+			onClick = function() ipc("media", { device_id = dev.kde_id, action = "Stop" }) end }),
 	}))
 
 	if m.canSeek and (m.length or 0) > 0 then
@@ -186,7 +190,7 @@ local function mediaSection(dev, rows)
 				onDragEnd = function()
 					local off = seekDrag[dev.id] or 0
 					seekDrag[dev.id] = nil
-					ipc("media_seek", { device_id = dev.id, offset = off })
+					ipc("media_seek", { device_id = dev.kde_id, offset = off })
 					render()
 				end,
 				flexGrow = 1,
@@ -206,7 +210,7 @@ local function mediaSection(dev, rows)
 				onDragEnd = function()
 					local vv = volDrag[dev.id] or 0
 					volDrag[dev.id] = nil
-					ipc("media_set_volume", { device_id = dev.id, volume = vv })
+					ipc("media_set_volume", { device_id = dev.kde_id, volume = vv })
 					render()
 				end,
 				flexGrow = 1,
@@ -241,7 +245,7 @@ local function smsSection(dev, rows)
 		text = noctalia.tr("sms.send"), variant = "primary", glyph = "send",
 		onClick = function()
 			if draft.dest ~= "" and draft.msg ~= "" then
-				ipc("sms_send", { device_id = dev.id, destination = draft.dest, text = draft.msg })
+				ipc("sms_send", { device_id = dev.kde_id, destination = draft.dest, text = draft.msg })
 				draft.msg = ""
 				render()
 			end
@@ -250,79 +254,7 @@ local function smsSection(dev, rows)
 	}))
 end
 
--- ─── 左栏：媒体 + 短信（或提示） ───
-local function leftColumn(dev)
-	local rows = {}
-	if dev.source == "kde" then
-		if dev.online then
-			mediaSection(dev, rows)
-			table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
-			smsSection(dev, rows)
-		else
-			table.insert(rows, ui.label({
-				text = noctalia.tr("panel.status_offline"), fontSize = 11, color = "surface_variant",
-			}))
-		end
-	else
-		-- adb 设备：无媒体/短信，提示投屏
-		table.insert(rows, ui.label({
-			text = noctalia.tr("panel.adb_hint"), fontSize = 11, color = "surface_variant",
-		}))
-	end
-	return ui.column({ gap = 8, flexGrow = 1 }, rows)
-end
-
--- ─── 右栏操作按钮 ───
-local function actionsColumn(dev)
-	local rows = {}
-	sectionLabel(rows, noctalia.tr("panel.section.actions"))
-	if dev.source == "adb" then
-		local isRunning = running[dev.id] ~= nil
-		table.insert(rows, isRunning and ui.button({
-			text = noctalia.tr("action.stop"), variant = "destructive", glyph = "player-stop",
-			onClick = function() ipc("stop", { device_id = dev.id }) end, flexGrow = 1,
-		}) or ui.button({
-			text = noctalia.tr("action.cast"), variant = "primary", glyph = "player-play",
-			onClick = function() ipc("start", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, ui.button({
-			text = noctalia.tr("action.disconnect"), variant = "ghost", glyph = "plug-off",
-			onClick = function() ipc("disconnect", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, ui.button({
-			text = noctalia.tr("panel.section.params"), variant = paramsExpanded and "primary" or "ghost",
-			glyph = "adjustments",
-			onClick = function() paramsExpanded = not paramsExpanded; render() end, flexGrow = 1,
-		}))
-	else
-		table.insert(rows, ui.button({
-			text = noctalia.tr("action.ring"), variant = "primary", glyph = "bell-ringing",
-			onClick = function() ipc("ring", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, ui.button({
-			text = noctalia.tr("action.ping"), variant = "ghost", glyph = "message",
-			onClick = function() ipc("ping", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, ui.button({
-			text = noctalia.tr("action.browse"), variant = "ghost", glyph = "folder",
-			onClick = function() ipc("browse", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, ui.button({
-			text = noctalia.tr("action.clipboard"), variant = "ghost", glyph = "clipboard",
-			onClick = function() ipc("clipboard", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-		table.insert(rows, dev.isPaired and ui.button({
-			text = noctalia.tr("action.unpair"), variant = "ghost", glyph = "link-off",
-			onClick = function() ipc("kde_unpair", { device_id = dev.id }) end, flexGrow = 1,
-		}) or ui.button({
-			text = noctalia.tr("action.pair"), variant = "ghost", glyph = "link",
-			onClick = function() ipc("kde_pair", { device_id = dev.id }) end, flexGrow = 1,
-		}))
-	end
-	return ui.column({ gap = 8, width = 140 }, rows)
-end
-
--- ─── 投屏参数区（adb，可展开） ───
+-- ─── 投屏参数区（adb） ───
 local function paramsContent()
 	local rows = {}
 
@@ -407,11 +339,110 @@ local function paramsContent()
 	toggleBlock("panel.record", "panel.record_desc",
 		params.record or false, function(v) params.record = v end)
 
-	table.insert(rows, ui.row({ gap = 8 }, {
-		ui.button({ text = noctalia.tr("action.usb"), variant = "ghost", glyph = "usb",
-			onClick = function() ipc("usb_mode", { device_id = selectedDevice }) end, flexGrow = 1 }),
-	}))
-	return ui.column({ gap = 8 }, rows)
+	return ui.column({ gap = 8, flexGrow = 1 }, rows)
+end
+
+-- ─── 左栏：媒体+短信（或投屏参数覆盖，或离线提示） ───
+local function leftColumn(dev)
+	if hasAdb(dev) and paramsExpanded then
+		return paramsContent()
+	end
+	local rows = {}
+	if hasKde(dev) then
+		if dev.kde_online then
+			mediaSection(dev, rows)
+			table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
+			smsSection(dev, rows)
+		else
+			table.insert(rows, ui.label({
+				text = noctalia.tr("panel.status_offline"), fontSize = 11, color = "surface_variant",
+			}))
+		end
+	else
+		table.insert(rows, ui.label({
+			text = noctalia.tr("panel.adb_hint"), fontSize = 11, color = "surface_variant",
+		}))
+	end
+	return ui.column({ gap = 8, flexGrow = 1 }, rows)
+end
+
+-- ─── 右栏操作按钮 ───
+local function actionsColumn(dev)
+	local rows = {}
+	sectionLabel(rows, noctalia.tr("panel.section.actions"))
+
+	if hasAdb(dev) then
+		local isRunning = running[dev.adb_id] ~= nil
+		table.insert(rows, isRunning and ui.button({
+			text = noctalia.tr("action.stop"), variant = "destructive", glyph = "player-stop",
+			onClick = function() ipc("stop", { device_id = dev.adb_id }) end, flexGrow = 1,
+		}) or ui.button({
+			text = noctalia.tr("action.cast"), variant = hasKde(dev) and "ghost" or "primary", glyph = "player-play",
+			onClick = function() ipc("start", { device_id = dev.adb_id }) end, flexGrow = 1,
+		}))
+	end
+
+	if hasKde(dev) then
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.ring"), variant = hasAdb(dev) and "ghost" or "primary", glyph = "bell-ringing",
+			onClick = function() ipc("ring", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.ping"), variant = "ghost", glyph = "message",
+			onClick = function() ipc("ping", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.browse"), variant = "ghost", glyph = "folder",
+			onClick = function() ipc("browse", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.clipboard"), variant = "ghost", glyph = "clipboard",
+			onClick = function() ipc("clipboard", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}))
+		table.insert(rows, ui.button({
+			text = noctalia.tr("action.share"), variant = "ghost", glyph = "share",
+			onClick = function()
+				local draft = smsDrafts[dev.id]
+				local text = draft and draft.msg or ""
+				if text == "" then
+					noctalia.notify("Phone Operate", noctalia.tr("notify.share_empty"))
+				else
+					ipc("share_text", { device_id = dev.kde_id, text = text })
+				end
+			end, flexGrow = 1,
+		}))
+	end
+
+	if hasAdb(dev) then
+		-- 投屏参数（分享按钮下方）
+		table.insert(rows, ui.button({
+			text = noctalia.tr("panel.section.params"), variant = paramsExpanded and "primary" or "ghost",
+			glyph = "adjustments",
+			onClick = function() paramsExpanded = not paramsExpanded; render() end, flexGrow = 1,
+		}))
+		if not hasKde(dev) then
+			table.insert(rows, ui.button({
+				text = noctalia.tr("action.disconnect"), variant = "ghost", glyph = "plug-off",
+				onClick = function() ipc("disconnect", { device_id = dev.adb_id }) end, flexGrow = 1,
+			}))
+			table.insert(rows, ui.button({
+				text = noctalia.tr("action.usb"), variant = "ghost", glyph = "usb",
+				onClick = function() ipc("usb_mode", { device_id = dev.adb_id }) end, flexGrow = 1,
+			}))
+		end
+	end
+
+	if hasKde(dev) then
+		table.insert(rows, dev.isPaired and ui.button({
+			text = noctalia.tr("action.unpair"), variant = "ghost", glyph = "link-off",
+			onClick = function() ipc("kde_unpair", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}) or ui.button({
+			text = noctalia.tr("action.pair"), variant = "ghost", glyph = "link",
+			onClick = function() ipc("kde_pair", { device_id = dev.kde_id }) end, flexGrow = 1,
+		}))
+	end
+
+	return ui.column({ gap = 8, width = 140 }, rows)
 end
 
 -- ─── 主渲染 ───
@@ -442,10 +473,6 @@ function render()
 				ui.box({ width = 1, fill = "surface_variant/0.5" }),
 				actionsColumn(sel),
 			}))
-			if sel.source == "adb" and paramsExpanded then
-				table.insert(rows, ui.separator({ thickness = 1, spacing = 2 }))
-				table.insert(rows, paramsContent())
-			end
 		end
 	end
 

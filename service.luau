@@ -76,12 +76,86 @@ local function mergeWithHistory(adbDevicesOut)
 	return merged
 end
 
+-- ─── 设备合并：adb 与 KDE Connect 按设备合并（不按类型分列）───
+-- 规则：adb 显示名 == kde 名（忽略大小写/空白）；或 adb、kde 各仅一台时兜底合并。
+local function mergeDevices()
+	local merged = {}
+	local usedKde = {}
+
+	local function norm(s)
+		return string.lower(s or ""):gsub("%s+", "")
+	end
+
+	local nAdb = #adbDevices
+	local nKde = #kdeDevices
+
+	for _, ad in ipairs(adbDevices) do
+		local matchIdx = nil
+		if nAdb == 1 and nKde == 1 then
+			matchIdx = 1 -- 单设备兜底
+		else
+			for i, kd in ipairs(kdeDevices) do
+				if not usedKde[i] and ad.label and ad.label ~= "" and norm(kd.label) == norm(ad.label) then
+					matchIdx = i
+					break
+				end
+			end
+		end
+
+		local dev = {
+			id = ad.id,
+			adb_id = ad.id,
+			source = "adb",
+			label = ad.label,
+			model = ad.model,
+			transport = ad.transport,
+			adb_online = ad.online,
+			online = ad.online,
+		}
+		if matchIdx then
+			local kd = kdeDevices[matchIdx]
+			usedKde[matchIdx] = true
+			dev.source = "both"
+			dev.kde_id = kd.kdeid
+			dev.isPaired = kd.isPaired
+			dev.isReachable = kd.isReachable
+			dev.kde_online = kd.online
+			dev.batteryCharge = kd.batteryCharge
+			dev.batteryCharging = kd.batteryCharging
+			dev.media = kd.media
+			dev.online = ad.online or kd.online
+			if (not ad.label) or ad.label == "" then dev.label = kd.label end
+		end
+		table.insert(merged, dev)
+	end
+
+	for i, kd in ipairs(kdeDevices) do
+		if not usedKde[i] then
+			table.insert(merged, {
+				id = "kde:" .. kd.kdeid,
+				kde_id = kd.kdeid,
+				source = "kde",
+				label = kd.label,
+				model = kd.label,
+				transport = "kde",
+				isPaired = kd.isPaired,
+				isReachable = kd.isReachable,
+				kde_online = kd.online,
+				online = kd.online,
+				batteryCharge = kd.batteryCharge,
+				batteryCharging = kd.batteryCharging,
+				media = kd.media,
+			})
+		end
+	end
+
+	return merged
+end
+
 -- ─── 统一设备列表发布（仅变化时，避免每轮询触发 panel 重渲染）───
 local lastDevicesJson = nil
 local function publishDevices()
-	local merged = {}
-	for _, d in ipairs(adbDevices) do table.insert(merged, d) end
-	for _, d in ipairs(kdeDevices) do table.insert(merged, d) end
+	local merged = mergeDevices()
 	devices = merged
 	local json = noctalia.json.encode(merged)
 	if json ~= lastDevicesJson then
@@ -373,6 +447,8 @@ function onIpc(event, payload)
 		kde.ping(kdeRawId(p.device_id), p.message)
 	elseif event == "clipboard" then
 		kde.sendClipboard(kdeRawId(p.device_id))
+	elseif event == "share_text" then
+		kde.shareText(kdeRawId(p.device_id), p.text)
 	elseif event == "browse" then
 		kde.browse(kdeRawId(p.device_id), function(ok, err)
 			if not ok then

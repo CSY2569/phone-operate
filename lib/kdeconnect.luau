@@ -229,6 +229,10 @@ function M.sendClipboard(id, cb)
 	runCli("--send-clipboard -d " .. shell.quote(id), cb)
 end
 
+function M.shareText(id, text, cb)
+	runCli("--share-text " .. shell.quote(text or "") .. " -d " .. shell.quote(id), cb)
+end
+
 -- 浏览：挂载 SFTP 并 xdg-open 挂载点
 function M.browse(id, cb)
 	local function tryOpen()
