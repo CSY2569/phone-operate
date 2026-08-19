@@ -889,9 +889,9 @@ function render()
 			deviceCard(d),
 			-- 两栏最小高度：媒体/参数区内容少时也有足够高度，但不触发
 			-- 滚动条（内容总高 = 设备卡 + 两栏需 ≤ viewport，否则右侧
-			-- 出现无意义的滚动条）。viewport 约 476，扣设备卡约 78 得 380
-			-- （留 18px 缓冲覆盖字体/缩放差异）。
-			ui.row({ key = "main-row", gap = 14, minHeight = 380,
+			-- 出现无意义的滚动条）。viewport 约 476，扣设备卡约 78 得 370
+			-- （留 28px 缓冲覆盖字体/缩放差异）。
+			ui.row({ key = "main-row", gap = 14, minHeight = 370,
 				align = "stretch", justify = "center" }, {
 				leftColumn(d),
 				rightColumn(d),
