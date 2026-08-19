@@ -1,16 +1,16 @@
 -- widget.luau
--- bar widget：状态图标。绿 = 正在投屏（至少一台 scrcpy 运行中），灰 = 未投屏。
--- 注意语义是"是否正在投屏"而非"有无设备"，订阅 KEY_RUNNING。
+-- bar widget：状态图标。颜色用 Noctalia 主题角色 token（primary=投屏中强调色，surface_variant=空闲），
+-- 由主题解析、可被主题更改。tooltip 带投屏设备计数。
 local state = require("./lib/state.luau")
 local ipc = require("./lib/ipc.luau")
 
-local running = false
+local runningCount = 0
 
 local function renderWidget()
 	barWidget.setGlyph("device-mobile")
-	if running then
-		barWidget.setGlyphColor("green")
-		barWidget.setTooltip(noctalia.tr("widget.tooltip.running"))
+	if runningCount > 0 then
+		barWidget.setGlyphColor("primary")
+		barWidget.setTooltip(noctalia.tr("widget.tooltip.running_count", { count = runningCount }))
 	else
 		barWidget.setGlyphColor("surface_variant")
 		barWidget.setTooltip(noctalia.tr("widget.tooltip.idle"))
@@ -19,10 +19,8 @@ end
 
 -- 订阅 service 发布的运行状态
 noctalia.state.watch(state.KEY_RUNNING, function(run)
-	-- run 是 { device_id = true } 表
-	local any = false
-	for _ in pairs(run) do any = true; break end
-	running = any
+	runningCount = 0
+	for _ in pairs(run or {}) do runningCount = runningCount + 1 end
 	renderWidget()
 end)
 
@@ -36,7 +34,7 @@ end
 
 function onRightClick()
 	-- 未投屏时：用最近设备直接启动 scrcpy
-	if not running then
+	if runningCount == 0 then
 		local devs = noctalia.state.get(state.KEY_DEVICES) or {}
 		if #devs > 0 then
 			ipc.send("start", { device_id = devs[1].id })

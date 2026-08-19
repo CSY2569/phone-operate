@@ -10,16 +10,11 @@ function onQuery(text)
 	for _, dev in ipairs(devs) do
 		-- 简单包含匹配（设备列表通常不长）
 		if text == "" or string.find(string.lower(dev.label), lower, 1, true) then
-			local subtitle = dev.transport
-			if dev.online then
-				subtitle = subtitle .. " · online"
-			else
-				subtitle = subtitle .. " · offline"
-			end
+			local status = dev.online and noctalia.tr("panel.status_online") or noctalia.tr("panel.status_offline")
 			table.insert(results, {
 				id = dev.id,
 				title = dev.label,
-				subtitle = subtitle,
+				subtitle = dev.transport .. " · " .. status,
 				glyph = dev.transport == "wifi" and "wifi" or "usb",
 			})
 		end
